@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Hermes Typewriter — e-ink chat interface for hermes-agent">
+  <title>Hermes Typewriter</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ====== HEADER ====== -->
+  <header id="header">
+    <div class="header-row">
+      <h1 id="title">HERMES</h1>
+      <span id="status" class="status status--offline">[OFFLINE]</span>
+    </div>
+    <div class="rule rule--heavy"></div>
+  </header>
+
+  <!-- ====== THREAD LIST VIEW ====== -->
+  <section id="threads-view" class="view">
+
+    <div class="section-bar">
+      <span class="section-label">Threads</span>
+      <button id="new-thread-btn" class="btn btn--sm" aria-label="Create new thread">[+ NEW]</button>
+    </div>
+
+    <!-- New thread inline form -->
+    <div id="new-thread-form" class="inline-form" style="display:none">
+      <label for="new-thread-input">Name:</label>
+      <input type="text" id="new-thread-input" class="input" placeholder="my-project" autocomplete="off" />
+      <div class="inline-form-actions">
+        <button id="new-thread-cancel" class="btn btn--sm" aria-label="Cancel new thread">[CANCEL]</button>
+        <button id="new-thread-create" class="btn btn--sm btn--primary" aria-label="Create thread">[CREATE]</button>
+      </div>
+    </div>
+
+    <!-- Thread list -->
+    <div id="threads-list" class="threads-list"></div>
+
+    <div id="threads-empty" class="empty-state">
+      <p>No threads yet.</p>
+      <p class="muted">Press [+ NEW] to begin.</p>
+    </div>
+
+    <div class="rule"></div>
+
+    <!-- Rejoin existing conversation -->
+    <div class="section-bar">
+      <span class="section-label">Rejoin</span>
+    </div>
+    <div class="rejoin-form">
+      <label for="rejoin-input">Conversation name:</label>
+      <input type="text" id="rejoin-input" class="input" placeholder="existing-thread" autocomplete="off" />
+      <button id="rejoin-btn" class="btn btn--sm" aria-label="Join thread">[JOIN]</button>
+    </div>
+
+    <div class="rule"></div>
+
+    <!-- Settings -->
+    <button id="settings-toggle" class="btn btn--block btn--subtle" aria-label="Toggle settings">[SETTINGS]</button>
+    <div id="settings-panel" style="display:none">
+      <div class="settings-field">
+        <label for="setting-url">Server:</label>
+        <div class="input-group">
+          <input type="text" id="setting-url" class="input" value="http://localhost:8642" />
+          <button id="test-connection-btn" class="btn btn--sm" aria-label="Test connection">[TEST]</button>
+        </div>
+      </div>
+      <div class="settings-field">
+        <label for="setting-key">API Key:</label>
+        <input type="password" id="setting-key" class="input" placeholder="Bearer token" />
+      </div>
+      <div class="settings-field">
+        <label for="setting-stream" class="checkbox-label">
+          <input type="checkbox" id="setting-stream" />
+          <span>Enable streaming</span>
+        </label>
+      </div>
+      <button id="settings-save" class="btn btn--sm btn--primary" aria-label="Save settings">[SAVE]</button>
+    </div>
+  </section>
+
+  <!-- ====== CHAT VIEW ====== -->
+  <section id="chat-view" class="view" style="display:none">
+
+    <div class="section-bar">
+      <button id="back-btn" class="btn btn--sm" aria-label="Go back">[<- BACK]</button>
+      <span id="thread-title" class="thread-title"></span>
+    </div>
+
+    <!-- Lazy-load earlier messages -->
+    <div id="load-earlier" style="display:none">
+      <button id="load-earlier-btn" class="btn btn--block btn--subtle">
+        [Load earlier messages...]
+      </button>
+    </div>
+
+    <!-- Messages area -->
+    <main id="messages" class="messages" role="log" aria-live="polite" aria-label="Chat messages"></main>
+
+    <!-- Typing indicator -->
+    <div id="typing-indicator" class="typing-indicator" style="display:none">
+      <span class="muted">hermes is typing_</span>
+    </div>
+
+    <!-- Input area -->
+    <div class="input-area">
+      <textarea
+        id="message-input"
+        class="message-input"
+        rows="2"
+        placeholder="Type your message..."
+        aria-label="Message input"
+      ></textarea>
+      <button id="send-btn" class="btn btn--primary btn--send" aria-label="Send message">[SEND]</button>
+    </div>
+  </section>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
