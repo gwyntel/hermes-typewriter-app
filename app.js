@@ -8,6 +8,8 @@
   var DEFAULT_KEY = CONFIG.apiKey || '';
   var DEFAULT_STREAM = !!CONFIG.streaming;
   var TIMEOUT_MS = 120000;
+  var MAX_RETRIES = 3;
+  var RETRY_DELAY_MS = 1000;
 
   // Tool icon map (ASCII — no emoji on Kindle)
   var TOOL_ICONS = {
@@ -44,7 +46,9 @@
     latestResponseId: null,
     earliestResponseId: null,
     hasEarlier: false,
-    loadingEarlier: false
+    loadingEarlier: false,
+    retryCount: 0,
+    lastError: null
   };
 
   // === DOM CACHE ===
@@ -77,7 +81,7 @@
         streaming: state.streaming,
         threads: state.threads
       }));
-    } catch (e) { /* Kindle may wipe */ }
+    } catch (e) { /* Kindle may wipe — silent fail */ }
   }
 
   function load() {
@@ -103,7 +107,8 @@
   }
 
   function escapeHtml(s) {
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (!s) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function renderMarkdown(text) {
@@ -131,7 +136,52 @@
   }
 
   function scrollToBottom() {
+    // Use direct scroll for Kindle compatibility (no smooth scrolling)
     window.scrollTo(0, document.body.scrollHeight);
+  }
+
+  // Kindle-compatible scrollIntoView fallback
+  function scrollIntoViewKindle(el) {
+    if (!el) return;
+    try {
+      // Try modern API first, fallback to direct scroll
+      if (el.scrollIntoView && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView(false); // 'false' = align to bottom, works better on Kindle
+      } else {
+        var rect = el.getBoundingClientRect();
+        var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        window.scrollTo(0, scrollTop + rect.top - 50);
+      }
+    } catch (e) {
+      // Fallback: just scroll to bottom of page
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+  }
+
+  // Retry with exponential backoff
+  function fetchWithRetry(url, options, retryCount) {
+    retryCount = retryCount || 0;
+    return fetch(url, options).catch(function(err) {
+      if (retryCount < MAX_RETRIES && isNetworkError(err)) {
+        state.retryCount = retryCount + 1;
+        var delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
+        return new Promise(function(resolve, reject) {
+          setTimeout(function() {
+            fetchWithRetry(url, options, retryCount + 1).then(resolve).catch(reject);
+          }, delay);
+        });
+      }
+      throw err;
+    });
+  }
+
+  function isNetworkError(err) {
+    if (!err) return false;
+    var msg = err.message || String(err);
+    return msg.indexOf('network') !== -1 ||
+           msg.indexOf('Network') !== -1 ||
+           msg.indexOf('Failed to fetch') !== -1 ||
+           err.name === 'TypeError';
   }
 
   // === THREADS ===
@@ -187,17 +237,24 @@
       .then(function(r) {
         clearTimeout(tid);
         state.connected = r.ok;
+        state.retryCount = 0;
+        state.lastError = null;
         renderStatus();
         if (manual) E['test-connection-btn'].textContent = r.ok ? '[OK!]' : '[ERR ' + r.status + ']';
       })
-      .catch(function() {
+      .catch(function(err) {
         clearTimeout(tid);
         state.connected = false;
+        state.lastError = err.message || 'Connection failed';
         renderStatus();
         if (manual) E['test-connection-btn'].textContent = '[FAIL]';
       })
       .finally(function() {
-        if (manual) setTimeout(function() { E['test-connection-btn'].textContent = '[TEST]'; }, 2500);
+        if (manual) {
+          setTimeout(function() {
+            E['test-connection-btn'].textContent = '[TEST]';
+          }, 2500);
+        }
       });
   }
 
@@ -205,6 +262,7 @@
   function sendMessage(text) {
     if (state.sending || !text.trim()) return;
     state.sending = true;
+    state.retryCount = 0;
     updateInputState();
 
     state.messages.push({ role: 'user', content: text, tools: [] });
@@ -231,12 +289,18 @@
     var tid = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
 
     fetch(state.serverUrl + '/v1/responses', {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify(body), signal: ctrl.signal
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     })
     .then(function(r) {
       clearTimeout(tid);
-      if (!r.ok) return r.text().then(function(t) { throw new Error('HTTP ' + r.status + ': ' + t); });
+      if (!r.ok) {
+        return r.text().then(function(t) {
+          throw new Error('HTTP ' + r.status + ': ' + (t || 'Unknown error'));
+        });
+      }
       return r.json();
     })
     .then(function(data) {
@@ -246,7 +310,9 @@
       renderMessages();
     })
     .catch(function(err) {
-      state.messages.push({ role: 'error', content: err.message || String(err), tools: [] });
+      var errMsg = err.message || String(err);
+      state.lastError = errMsg;
+      state.messages.push({ role: 'error', content: errMsg, tools: [] });
       renderMessages();
     })
     .finally(function() {
@@ -263,13 +329,19 @@
     var msg = { role: 'assistant', content: '', tools: [] };
 
     fetch(state.serverUrl + '/v1/responses', {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify(body), signal: ctrl.signal
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     })
     .then(function(r) {
       clearTimeout(tid);
-      if (!r.ok) return r.text().then(function(t) { throw new Error('HTTP ' + r.status + ': ' + t); });
-      
+      if (!r.ok) {
+        return r.text().then(function(t) {
+          throw new Error('HTTP ' + r.status + ': ' + (t || 'Unknown error'));
+        });
+      }
+
       var contentType = r.headers.get('content-type') || '';
       if (contentType.indexOf('application/json') !== -1) {
         return r.json().then(function(data) {
@@ -286,7 +358,9 @@
       return pumpStream(r, msg);
     })
     .catch(function(err) {
-      state.messages.push({ role: 'error', content: err.message || String(err), tools: [] });
+      var errMsg = err.message || String(err);
+      state.lastError = errMsg;
+      state.messages.push({ role: 'error', content: errMsg, tools: [] });
       renderMessages();
     })
     .finally(function() {
@@ -328,28 +402,28 @@
       try {
         var dataStr = line.substring(5).trim();
         var d = JSON.parse(dataStr);
-        
+
         // Responses API streaming events
         if (d.type === 'response.output_text.delta') {
           var txtDelta = '';
           if (typeof d.delta === 'string') txtDelta = d.delta;
           else if (d.delta && typeof d.delta.text === 'string') txtDelta = d.delta.text;
           else if (typeof d.text === 'string') txtDelta = d.text;
-          
+
           if (txtDelta) {
             msg.content += replaceEmoji(txtDelta);
             updateLastMessage(msg);
           }
         } else if (d.type === 'response.completed' && d.response) {
           if (d.response.id) state.latestResponseId = d.response.id;
-          
+
           // Re-parse the complete final response to fix any streamed vs final mismatch
           var finalMsg = parseResponseData(d.response);
           if (finalMsg.content) msg.content = finalMsg.content;
           if (finalMsg.tools && finalMsg.tools.length > 0) msg.tools = finalMsg.tools;
           updateLastMessage(msg);
         }
-        
+
         // Chat Completions fallback
         if (d.choices && d.choices[0]) {
           if (d.choices[0].delta && d.choices[0].delta.content) {
@@ -362,7 +436,7 @@
             updateLastMessage(msg);
           }
         }
-      } catch (e) { /* skip malformed */ }
+      } catch (e) { /* skip malformed SSE lines */ }
     }
   }
 
@@ -381,7 +455,9 @@
             var p = JSON.parse(item.arguments || '{}');
             var k = Object.keys(p);
             if (k.length > 0) args = String(p[k[0]]).substring(0, 60);
-          } catch (e) { args = (item.arguments || '').substring(0, 60); }
+          } catch (e) {
+            args = (item.arguments || '').substring(0, 60);
+          }
           msg.tools.push({ name: name, icon: icon, args: args, callId: item.call_id || '' });
         } else if (item.type === 'function_call_output') {
           for (var j = msg.tools.length - 1; j >= 0; j--) {
@@ -429,10 +505,19 @@
         renderMessages();
         updateLoadEarlier();
       })
-      .catch(function() { /* silent */ })
+      .catch(function(err) {
+        // Show error briefly
+        var btn = E['load-earlier-btn'];
+        btn.textContent = '[ERR: ' + (err.message || 'Failed') + ']';
+        setTimeout(function() {
+          btn.textContent = '[Load earlier messages...]';
+        }, 2000);
+      })
       .finally(function() {
         state.loadingEarlier = false;
-        E['load-earlier-btn'].textContent = '[Load earlier messages...]';
+        if (!state.lastError) {
+          E['load-earlier-btn'].textContent = '[Load earlier messages...]';
+        }
       });
   }
 
@@ -456,7 +541,11 @@
         renderMessages();
         updateLoadEarlier();
       })
-      .catch(function() { /* thread may be new */ });
+      .catch(function(err) {
+        // Thread may be new or expired — just show empty state
+        state.hasEarlier = false;
+        updateLoadEarlier();
+      });
   }
 
   function responseToMessages(data) {
@@ -465,7 +554,10 @@
       var txt = typeof data.input === 'string' ? data.input : '';
       if (Array.isArray(data.input)) {
         for (var i = 0; i < data.input.length; i++) {
-          if (data.input[i].content) { txt = data.input[i].content; break; }
+          if (data.input[i].content) {
+            txt = data.input[i].content;
+            break;
+          }
         }
       }
       if (txt) msgs.push({ role: 'user', content: txt, tools: [] });
@@ -479,7 +571,11 @@
 
   // === RENDERING ===
   function renderStatus() {
-    E['status'].textContent = state.connected ? '[CONNECTED]' : '[OFFLINE]';
+    var statusText = state.connected ? '[CONNECTED]' : '[OFFLINE]';
+    if (state.lastError && !state.connected) {
+      statusText = '[OFFLINE: ' + state.lastError.substring(0, 20) + ']';
+    }
+    E['status'].textContent = statusText;
     E['status'].className = 'status status--' + (state.connected ? 'online' : 'offline');
   }
 
@@ -553,7 +649,7 @@
     role.textContent = msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Hermes' : 'Error';
     el.appendChild(role);
 
-    if (msg.tools) {
+    if (msg.tools && msg.tools.length > 0) {
       for (var i = 0; i < msg.tools.length; i++) {
         var ti = document.createElement('span');
         ti.className = 'tool-indicator';
@@ -579,7 +675,10 @@
   function updateLastMessage(msg) {
     var all = E['messages'].querySelectorAll('.message');
     var last = all[all.length - 1];
-    if (!last) { renderMessages(); return; }
+    if (!last) {
+      renderMessages();
+      return;
+    }
     var c = last.querySelector('.message-content');
     if (!c) {
       c = document.createElement('div');
@@ -592,7 +691,11 @@
 
   function removeCursor() {
     var cs = document.querySelectorAll('.streaming-cursor');
-    for (var i = 0; i < cs.length; i++) cs[i].parentNode.removeChild(cs[i]);
+    for (var i = 0; i < cs.length; i++) {
+      if (cs[i].parentNode) {
+        cs[i].parentNode.removeChild(cs[i]);
+      }
+    }
   }
 
   function showTyping(on) {
@@ -618,6 +721,7 @@
     state.latestResponseId = null;
     state.earliestResponseId = null;
     state.hasEarlier = false;
+    state.lastError = null;
     E['thread-title'].textContent = name;
     showView('chat');
     updateLoadEarlier();
@@ -655,7 +759,10 @@
       if (name) openThread(name);
     });
     E['rejoin-input'].addEventListener('keydown', function(ev) {
-      if (ev.key === 'Enter') { ev.preventDefault(); E['rejoin-btn'].click(); }
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        E['rejoin-btn'].click();
+      }
     });
 
     // Settings
@@ -665,7 +772,7 @@
     });
     E['settings-save'].addEventListener('click', function() {
       state.serverUrl = E['setting-url'].value.trim() || DEFAULT_URL;
-      state.apiKey = E['setting-key'].value;
+      state.apiKey = E['setting-key'].value || '';
       state.streaming = E['setting-stream'].checked;
       save();
       checkHealth();
@@ -680,7 +787,9 @@
     });
 
     // Back
-    E['back-btn'].addEventListener('click', function() { showView('threads'); });
+    E['back-btn'].addEventListener('click', function() {
+      showView('threads');
+    });
 
     // Load earlier
     E['load-earlier-btn'].addEventListener('click', loadEarlier);
@@ -702,9 +811,22 @@
     });
     E['message-input'].addEventListener('input', autoGrow);
     E['message-input'].addEventListener('focus', function() {
+      // Delayed scroll for Kindle keyboard appearing
       setTimeout(function() {
-        E['message-input'].scrollIntoView({ behavior: 'instant', block: 'center' });
+        scrollIntoViewKindle(E['message-input']);
       }, 150);
+    });
+
+    // Global keyboard shortcuts
+    document.addEventListener('keydown', function(ev) {
+      // Escape closes forms/settings
+      if (ev.key === 'Escape') {
+        if (E['new-thread-form'].style.display !== 'none') {
+          E['new-thread-form'].style.display = 'none';
+        } else if (E['settings-panel'].style.display !== 'none') {
+          E['settings-panel'].style.display = 'none';
+        }
+      }
     });
   }
 
@@ -714,8 +836,24 @@
     el.style.height = Math.min(el.scrollHeight, 150) + 'px';
   }
 
+  // === ERROR HANDLING ===
+  function setupErrorHandling() {
+    // Global error handler
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error('[Hermes Typewriter Error]', message, source, lineno);
+      // Don't show alert on Kindle — just log
+      return false;
+    };
+
+    // Unhandled promise rejection
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('[Hermes Typewriter Promise Error]', event.reason);
+    });
+  }
+
   // === INIT ===
   function init() {
+    setupErrorHandling();
     cacheDom();
     load();
 

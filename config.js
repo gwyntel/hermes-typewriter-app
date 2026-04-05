@@ -1,15 +1,18 @@
 // Hermes Typewriter Configuration
-// You can pre-configure your backend API URL here.
-// This is useful if you want to hardcode a tunnel or LAN IP for your Kindle.
+// Pre-configured for Tailscale access — modify as needed
 
 window.HERMES_CONFIG = {
   // The base URL of your hermes-agent API server
-  // Example: "https://your-api-tunnel.trycloudflare.com" or "http://192.168.1.10:8642"
-  serverUrl: '',
+  // Default: Tailscale IP of the Hermes gateway
+  // Change this to your actual Tailscale IP or tunnel URL
+  serverUrl: 'http://100.121.214.107:8642',
 
-  // Default API key if you want to hardcode it (optional)
-  apiKey: '',
+  // Default API key (matches HERMES_API_KEY on the server)
+  // Leave empty if no auth required, or set your key here
+  apiKey: 'donthackme',
 
   // Default streaming preference
+  // true = streaming responses (faster feel, more e-ink refreshes)
+  // false = blocking responses (simpler, fewer refreshes)
   streaming: true
 };
