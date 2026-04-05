@@ -9,7 +9,7 @@ window.HERMES_CONFIG = {
 
   // Default API key (matches HERMES_API_KEY on the server)
   // Leave empty if no auth required, or set your key here
-  apiKey: 'donthackme',
+  apiKey: '',
 
   // Default streaming preference
   // true = streaming responses (faster feel, more e-ink refreshes)
