@@ -3,9 +3,9 @@
 
 window.HERMES_CONFIG = {
   // The base URL of your hermes-agent API server
-  // Default: Tailscale IP of the Hermes gateway
-  // Change this to your actual Tailscale IP or tunnel URL
-  serverUrl: 'http://100.121.214.107:8642',
+  // Default: localhost (for same-machine or SSH tunnel access)
+  // Change this to your Tailscale IP or tunnel URL for remote access
+  serverUrl: 'http://localhost:8642',
 
   // Default API key (matches HERMES_API_KEY on the server)
   // Leave empty if no auth required, or set your key here
