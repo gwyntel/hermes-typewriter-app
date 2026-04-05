@@ -3,9 +3,9 @@
 
 window.HERMES_CONFIG = {
   // The base URL of your hermes-agent API server
-  // Default: localhost (for same-machine or SSH tunnel access)
-  // Change this to your Tailscale IP or tunnel URL for remote access
-  serverUrl: 'http://localhost:8642',
+  // Leave empty to use the proxy built into server.py (recommended)
+  // Set only if you want to bypass the proxy and connect directly
+  serverUrl: '',
 
   // Default API key (matches HERMES_API_KEY on the server)
   // Leave empty if no auth required, or set your key here
