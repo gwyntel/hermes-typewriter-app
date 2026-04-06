@@ -33,18 +33,20 @@ Follow these phases to get the typewriter live on a Kindle:
 
 ### Phase 1: Backend Configuration
 
-1. **Check Backend Status**: Verify if the hermes-agent API server is enabled.
-   - Read `~/.hermes/.env` (if it exists) and look for `API_SERVER_ENABLED=true` and `API_SERVER_KEY`.
-   - If not enabled, inform the user you will add these lines:
-     ```bash
-     API_SERVER_ENABLED=true
-     API_SERVER_KEY=donthackme
-     ```
-   - *Security Note*: Use the existing key if found, otherwise suggest 'donthackme'.
+1. **Check API Health**: Before modifying any config, check if the API server is already running and accessible:
+   - Try `curl -s http://localhost:8642/health`.
+   - If it returns `{"status": "ok"}`, the backend is ready. Skip configuration and proceed to Phase 2.
 
-2. **Ensure Gateway is Running**:
-   - Check if the gateway is running (`lsof -ti :8642` or similar).
-   - If not, start it in the background: `hermes gateway &`
+2. **Retrieve API Key & Configuration**:
+   - If the health check fails, read the current configuration from `~/.hermes/.env`.
+   - Look for `API_SERVER_ENABLED` and `API_SERVER_KEY`.
+   - If `API_SERVER_ENABLED` is missing or `false`, inform the user you will enable it.
+   - If `API_SERVER_KEY` exists, take note of it. If not, default to suggesting `donthackme`.
+
+3. **Ensure Gateway is Running**:
+   - Check if the gateway is running (`lsof -ti :8642`).
+   - If not, start it: `hermes gateway &`
+   - Re-verify with `curl http://localhost:8642/health`.
 
 ### Phase 2: Serves the Frontend
 
