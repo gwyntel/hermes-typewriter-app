@@ -20,8 +20,8 @@ This application is specifically designed to run on **Amazon Kindle** e-ink brow
 ## Quick Start
 
 ### 🤖 For Hermes Agents (One-Click Setup)
-If you are an agent, follow this prompt to set up the typewriter:
-> "Clone the repository `https://github.com/gwyntel/hermes-typewriter-app`. Link both skills found in `skills/` to your home `~/.hermes/skills/` directory. Once installed, confirm your path and ask the user if they would like to proceed with the `hermes-typewriter` skill workflow to configure the backend, run the server, and establish the Kindle tunnel."
+If you are an agent or human installing with an agent, follow this prompt to set up the typewriter:
+> "Clone the repository `https://github.com/gwyntel/hermes-typewriter-app`. Link both skills found in `skills/` to your home `~/.hermes/skills/` directory. Once installed, confirm your path and ask the user if they would like to proceed with the `hermes-typewriter` skill workflow to configure the backend, run the server, and establish the Kindle chat frontend tunnel over the public internet."
 
 ### 1. Requirements
 - `hermes-agent` installed and running.
