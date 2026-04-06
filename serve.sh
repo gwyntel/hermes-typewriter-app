@@ -117,14 +117,28 @@ if [ "$HAS_TUNNEL" = true ]; then
 
   # Wait for URL
   TUNNEL_URL=""
+  echo -n "[*] Waiting for tunnel to establish..."
   for i in {1..60}; do
+    # --- Try Programmatic API Check first (Faster/Reliable) ---
     if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+      # Cloudflare Local Metrics (if available) or Logs
       TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
-    else
-      # ngrok URL extraction (look for url=https://...)
-      TUNNEL_URL=$(grep -o 'https://[0-9a-z-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
-      # fallback for older ngrok versions or regions
-      [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[0-9a-z-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
+    elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
+      # Ngrok Local API (localhost:4040/api/tunnels)
+      if command -v curl &> /dev/null; then
+        TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' | head -n 1 || true)
+        [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok\.io' | head -n 1 || true)
+      fi
+    fi
+
+    # --- Fallback to log scraping if API check empty ---
+    if [[ -z "$TUNNEL_URL" ]]; then
+      if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+         TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
+      else
+         TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
+         [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
+      fi
     fi
     
     if [[ -n "$TUNNEL_URL" ]]; then break; fi
