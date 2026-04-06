@@ -8,7 +8,7 @@ PORT="8644"
 TUNNEL_TYPE="cloudflare" # default
 
 # --- Argument Parsing ---
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
   case $1 in
     --port)
       PORT="$2"
@@ -55,13 +55,15 @@ if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
     OS="$(uname -s)"
     ARCH="$(uname -m)"
     if [ "$OS" = "Darwin" ]; then
-      URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$( [[ "$ARCH" == "arm64" ]] && echo "arm64" || echo "amd64" ).tgz"
+    if [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
+    URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$CF_ARCH.tgz"
       curl -sL "$URL" -o cf.tgz && tar -xzf cf.tgz && rm cf.tgz
       chmod +x cloudflared && xattr -d com.apple.quarantine cloudflared 2>/dev/null || true
       TUNNEL_BIN="./cloudflared"
       HAS_TUNNEL=true
     elif [ "$OS" = "Linux" ]; then
-      URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$( [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && echo "arm64" || echo "amd64" )"
+    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
+    URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH"
       curl -sL "$URL" -o cloudflared && chmod +x cloudflared
       TUNNEL_BIN="./cloudflared"
       HAS_TUNNEL=true
@@ -105,8 +107,8 @@ cleanup() {
   echo ""
   echo "[*] Shutting down..."
   kill "$SERVER_PID" 2>/dev/null || true
-  [[ -n "${TUNNEL_PID:-}" ]] && kill "$TUNNEL_PID" 2>/dev/null || true
-  [[ -n "${TUNNEL_LOG:-}" ]] && rm -f "$TUNNEL_LOG"
+  [ -n "${TUNNEL_PID:-}" ] && kill "$TUNNEL_PID" 2>/dev/null || true
+  [ -n "${TUNNEL_LOG:-}" ] && rm -f "$TUNNEL_LOG"
   echo "[*] Done."
 }
 trap cleanup EXIT INT TERM
@@ -129,36 +131,45 @@ if [ "$HAS_TUNNEL" = true ]; then
   # Wait for URL
   TUNNEL_URL=""
   echo -n "[*] Waiting for tunnel to establish..."
-  for i in {1..60}; do
+  i=1
+  while [ $i -le 60 ]; do
     # --- 1. Try Programmatic API Check (Cloudflare 20241-20245 / Ngrok 4040) ---
     if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
-      if command -v curl &> /dev/null; then
-        for port in {20241..20245}; do
-          JSON=$(curl -s --max-time 1 http://localhost:$port/quicktunnel || true)
-          if [[ "$JSON" == *"hostname"* ]]; then
+      if command -v curl > /dev/null 2>&1; then
+        for port in 20241 20242 20243 20244 20245; do
+          JSON=$(curl -s --max-time 1 "http://localhost:$port/quicktunnel" || true)
+          # Use grep for portable glob matching
+          if echo "$JSON" | grep -q "hostname"; then
             HOST=$(echo "$JSON" | grep -o '"hostname":"[^"]*"' | cut -d'"' -f4)
-            [[ -n "$HOST" ]] && TUNNEL_URL="https://$HOST" && break
+            if [ -n "$HOST" ]; then
+              TUNNEL_URL="https://$HOST"
+              break
+            fi
           fi
         done
       fi
     elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
-      if command -v curl &> /dev/null; then
+      if command -v curl > /dev/null 2>&1; then
         TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' | head -n 1 || true)
-        [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok\.io' | head -n 1 || true)
+        if [ -z "$TUNNEL_URL" ]; then
+          TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok\.io' | head -n 1 || true)
+        fi
       fi
     fi
 
-    [[ -n "$TUNNEL_URL" ]] && break
+    if [ -n "$TUNNEL_URL" ]; then break; fi
 
     # --- 2. Parallel Fallback: Scrape Logs if API not ready yet ---
     if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
       TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
     else
       TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
-      [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
+      if [ -z "$TUNNEL_URL" ]; then
+        TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
+      fi
     fi
 
-    [[ -n "$TUNNEL_URL" ]] && break
+    if [ -n "$TUNNEL_URL" ]; then break; fi
     
     # Check if process is still alive while waiting
     if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
@@ -170,10 +181,11 @@ if [ "$HAS_TUNNEL" = true ]; then
 
     echo -n "."
     sleep 1
+    i=$((i + 1))
   done
 
 
-  if [[ -n "$TUNNEL_URL" ]]; then
+  if [ -n "$TUNNEL_URL" ]; then
     echo " ✅"
     echo ""
     echo "============================================"
