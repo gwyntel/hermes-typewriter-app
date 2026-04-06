@@ -36,12 +36,17 @@ API_SERVER_KEY=your-secret-key
 ```
 
 ### 3. Start the Application
-Run the serve script to start the local server and establish a Cloudflare tunnel:
+Run the serve script to start the local server and establish a tunnel. It defaults to **Cloudflare**, but you can specify **Ngrok**:
+
 ```bash
-./serve.sh
+# Default (Cloudflare)
+./serve.sh --port 8643
+
+# Using Ngrok (requires ngrok in PATH)
+./serve.sh --tunnel ngrok --port 8643
 ```
 
-The script will provide a `trycloudflare.com` URL. Open this URL in your Kindle's "Experimental Browser" or "Web Browser".
+The script will provide a `trycloudflare.com` or `ngrok.app` URL. Open this URL in your Kindle's browser.
 
 ## Skills for Hermes Agent
 

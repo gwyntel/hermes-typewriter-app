@@ -52,14 +52,18 @@ Follow these phases to get the typewriter live on a Kindle:
 
 1. **Start the Proxy + Tunnel**:
    - Navigate to the `hermes-typewriter-app` directory.
-   - Run the serve script **in the background** so the skill can capture the URL and continue:
+   - Run the serve script **in the background**. Choose **Cloudflare** (default) or **Ngrok**:
      ```bash
-     nohup ./serve.sh 8643 > typewriter_serve.log 2>&1 &
+     # Cloudflare (recommended for auto-download)
+     nohup ./serve.sh --tunnel cloudflare > typewriter_serve.log 2>&1 &
+     
+     # Ngrok (if installed)
+     nohup ./serve.sh --tunnel ngrok > typewriter_serve.log 2>&1 &
      ```
-   - *Note*: Blocking execution is fine initially to see output, but ensuring it persists is key.
+   - *Note*: You can use `--port` if needed (default: 8643).
 
 2. **Monitor the Log**:
-   - Check `typewriter_serve.log` (or wait for stdout) to find the `.trycloudflare.com` URL.
+   - Check `typewriter_serve.log` to find the tunnel URL (`.trycloudflare.com` or `.ngrok-free.app`).
 
 ### Phase 3: Reporting & Connection
 

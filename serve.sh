@@ -1,69 +1,83 @@
 #!/usr/bin/env bash
-# serve.sh — Lightweight static server + Cloudflare Tunnel for Kindle access
-# Usage: ./serve.sh [port]
+# serve.sh — Lightweight static server + Tunnel (Cloudflare or Ngrok) for Kindle access
+# Usage: ./serve.sh [port] [--tunnel cloudflare|ngrok]
 
 set -euo pipefail
 
-PORT="${1:-8643}"
+PORT="8643"
+TUNNEL_TYPE="cloudflare" # default
+
+# --- Argument Parsing ---
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --tunnel)
+      TUNNEL_TYPE="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
+    *)
+      # Fallback for positional port argument: ./serve.sh 8643
+      PORT="$1"
+      shift
+      ;;
+  esac
+done
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "============================================"
 echo "  HERMES TYPEWRITER"
-echo "  Static server + Cloudflare Tunnel"
+echo "  Port:   $PORT"
+echo "  Tunnel: $TUNNEL_TYPE"
 echo "============================================"
 echo ""
 
-# --- Check for cloudflared ---
-if [ -f "./cloudflared" ]; then
-  CLOUDFLARED="./cloudflared"
-  HAS_TUNNEL=true
-elif command -v cloudflared &> /dev/null; then
-  CLOUDFLARED="cloudflared"
-  HAS_TUNNEL=true
-else
-  echo "[!] cloudflared not found Locally or in PATH."
-  echo "    Attempting to auto-install cloudflared..."
-  echo ""
-  
-  OS="$(uname -s)"
-  ARCH="$(uname -m)"
-  
-  if [ "$OS" = "Darwin" ]; then
-    if [ "$ARCH" = "arm64" ]; then
-      TGZ_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"
-    else
-      TGZ_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz"
-    fi
-    echo "[*] Downloading macOS binary: $TGZ_URL"
-    curl -sL "$TGZ_URL" -o cloudflared.tgz
-    tar -xzf cloudflared.tgz
-    rm cloudflared.tgz
-    chmod +x cloudflared 2>/dev/null || true
-    xattr -d com.apple.quarantine cloudflared 2>/dev/null || true
-    CLOUDFLARED="./cloudflared"
+HAS_TUNNEL=false
+TUNNEL_BIN=""
+
+# --- Tunnel Provider Setup ---
+if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+  if [ -f "./cloudflared" ]; then
+    TUNNEL_BIN="./cloudflared"
     HAS_TUNNEL=true
-  elif [ "$OS" = "Linux" ]; then
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-      BIN_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-    else
-      BIN_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
-    fi
-    echo "[*] Downloading Linux binary: $BIN_URL"
-    curl -sL "$BIN_URL" -o cloudflared
-    chmod +x cloudflared
-    CLOUDFLARED="./cloudflared"
+  elif command -v cloudflared &> /dev/null; then
+    TUNNEL_BIN="cloudflared"
     HAS_TUNNEL=true
   else
-    echo "[!] OS $OS not supported for auto-download."
-    echo "    Install manually: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-    echo ""
-    echo "    Starting local server only (no tunnel)..."
-    echo ""
+    echo "[*] cloudflared not found. Attempting auto-install..."
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+    if [ "$OS" = "Darwin" ]; then
+      URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$( [[ "$ARCH" == "arm64" ]] && echo "arm64" || echo "amd64" ).tgz"
+      curl -sL "$URL" -o cf.tgz && tar -xzf cf.tgz && rm cf.tgz
+      chmod +x cloudflared && xattr -d com.apple.quarantine cloudflared 2>/dev/null || true
+      TUNNEL_BIN="./cloudflared"
+      HAS_TUNNEL=true
+    elif [ "$OS" = "Linux" ]; then
+      URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$( [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]] && echo "arm64" || echo "amd64" )"
+      curl -sL "$URL" -o cloudflared && chmod +x cloudflared
+      TUNNEL_BIN="./cloudflared"
+      HAS_TUNNEL=true
+    fi
+  fi
+elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
+  if command -v ngrok &> /dev/null; then
+    TUNNEL_BIN="ngrok"
+    HAS_TUNNEL=true
+  else
+    echo "[!] ngrok not found in PATH. Please install it: https://ngrok.com/download"
     HAS_TUNNEL=false
   fi
 fi
 
-# --- Free the port if something is already using it ---
+# --- Free the port ---
 if lsof -ti :"$PORT" &>/dev/null; then
   echo "[!] Port $PORT is in use — killing existing process..."
   lsof -ti :"$PORT" | xargs kill -9 2>/dev/null || true
@@ -71,102 +85,75 @@ if lsof -ti :"$PORT" &>/dev/null; then
 fi
 
 # --- Start Proxy + Static server ---
-echo "[*] Starting proxy server on http://localhost:${PORT}"
-echo "    Proxying /v1/* to ${HERMES_URL:-http://localhost:8642}"
-echo "    Serving Frontend: ${DIR}"
-echo ""
-
-# Use custom proxy server to handle API calls
+echo "[*] Starting proxy server on http://localhost:${PORT}..."
 export HERMES_URL="${HERMES_URL:-http://localhost:8642}"
 python3 server.py "$PORT" &
 SERVER_PID=$!
 
-# Cleanup on exit
 cleanup() {
   echo ""
   echo "[*] Shutting down..."
   kill "$SERVER_PID" 2>/dev/null || true
-  if [ "${TUNNEL_PID:-}" ]; then
-    kill "$TUNNEL_PID" 2>/dev/null || true
-  fi
-  if [ "${TUNNEL_LOG:-}" ]; then
-    rm -f "$TUNNEL_LOG"
-  fi
+  [[ -n "${TUNNEL_PID:-}" ]] && kill "$TUNNEL_PID" 2>/dev/null || true
+  [[ -n "${TUNNEL_LOG:-}" ]] && rm -f "$TUNNEL_LOG"
   echo "[*] Done."
 }
 trap cleanup EXIT INT TERM
 
 sleep 1
 
-# --- Start Cloudflare Tunnel ---
-if [ "${HAS_TUNNEL:-false}" = true ]; then
-  echo "[*] Starting Cloudflare Tunnel..."
-
-  # Temp log file to capture cloudflared output (stdout+stderr)
+# --- Start Tunnel ---
+if [ "$HAS_TUNNEL" = true ]; then
   TUNNEL_LOG=$(mktemp)
-
-  # Launch cloudflared — the binary is already present at this point (downloaded above if needed)
-  $CLOUDFLARED tunnel --url "http://localhost:${PORT}" > "$TUNNEL_LOG" 2>&1 &
+  echo -n "[*] Starting $TUNNEL_TYPE tunnel..."
+  
+  if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+    $TUNNEL_BIN tunnel --url "http://localhost:${PORT}" > "$TUNNEL_LOG" 2>&1 &
+  else
+    # ngrok log format is different; we use --log=stdout
+    $TUNNEL_BIN http "$PORT" --log=stdout > "$TUNNEL_LOG" 2>&1 &
+  fi
   TUNNEL_PID=$!
 
-  # Wait until cloudflared process is confirmed alive before polling
-  # (guards against the race where the process hasn't written anything yet)
-  echo -n "[*] Waiting for tunnel to establish..."
-  for _ in 1 2 3; do
-    kill -0 "$TUNNEL_PID" 2>/dev/null && break
-    sleep 1
-  done
-
-  # Poll up to 60s for the trycloudflare.com URL in the logs
-  count=0
+  # Wait for URL
   TUNNEL_URL=""
-  while [ $count -lt 60 ]; do
-    # cloudflared may print the URL as a plain line or inside a log message
-    TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" 2>/dev/null | head -n 1 || true)
-    if [ -n "$TUNNEL_URL" ]; then
-      break
+  for i in {1..60}; do
+    if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+      TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
+    else
+      # ngrok URL extraction (look for url=https://...)
+      TUNNEL_URL=$(grep -o 'https://[0-9a-z-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
+      # fallback for older ngrok versions or regions
+      [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[0-9a-z-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
     fi
-    # Bail early if cloudflared itself died
+    
+    if [[ -n "$TUNNEL_URL" ]]; then break; fi
     if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-      echo ""
-      echo "[!] cloudflared exited unexpectedly. Log:"
+      echo " ❌"
+      echo "[!] Tunnel exited unexpectedly. Log:"
       cat "$TUNNEL_LOG"
-      break
+      exit 1
     fi
     echo -n "."
     sleep 1
-    count=$((count+1))
   done
 
-  if [ -n "$TUNNEL_URL" ]; then
+  if [[ -n "$TUNNEL_URL" ]]; then
     echo " ✅"
     echo ""
     echo "============================================"
     echo "  READY"
     echo "  Local:  http://localhost:${PORT}"
     echo "  Tunnel: $TUNNEL_URL"
-    echo ""
-    echo "  On your Kindle browser, navigate to:"
-    echo "  $TUNNEL_URL"
-    echo ""
-    echo "  Then in Settings, set the Server URL to"
-    echo "  your hermes-agent API address."
     echo "============================================"
   else
-    echo " ❌"
-    echo "[!] Could not detect tunnel URL after 60s."
-    echo "    Dumping cloudflared log:"
+    echo " ❌ (Timeout)"
     cat "$TUNNEL_LOG"
   fi
 else
-  echo "============================================"
-  echo "  READY (local only)"
-  echo "  http://localhost:${PORT}"
-  echo "============================================"
+  echo "[!] No tunnel active. Local only: http://localhost:${PORT}"
 fi
 
 echo ""
 echo "Press Ctrl+C to stop."
-
-# Wait for background processes
 wait
