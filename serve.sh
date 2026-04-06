@@ -121,8 +121,20 @@ if [ "$HAS_TUNNEL" = true ]; then
   for i in {1..60}; do
     # --- Try Programmatic API Check first (Faster/Reliable) ---
     if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
-      # Cloudflare Local Metrics (if available) or Logs
-      TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
+      # Cloudflare Local Metrics API (new semi-deterministic range: 20241-20245)
+      if command -v curl &> /dev/null; then
+        for port in {20241..20245}; do
+          JSON=$(curl -s --max-time 1 http://localhost:$port/quicktunnel || true)
+          if [[ "$JSON" == *"hostname"* ]]; then
+            # Cloudflare returns {"hostname":"xyz.trycloudflare.com"}
+            HOST=$(echo "$JSON" | grep -o '"hostname":"[^"]*"' | cut -d'"' -f4)
+            if [[ -n "$HOST" ]]; then
+              TUNNEL_URL="https://$HOST"
+              break
+            fi
+          fi
+        done
+      fi
     elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
       # Ngrok Local API (localhost:4040/api/tunnels)
       if command -v curl &> /dev/null; then
@@ -131,7 +143,7 @@ if [ "$HAS_TUNNEL" = true ]; then
       fi
     fi
 
-    # --- Fallback to log scraping if API check empty ---
+    # --- Fallback to log scraping if API checks empty ---
     if [[ -z "$TUNNEL_URL" ]]; then
       if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
          TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
