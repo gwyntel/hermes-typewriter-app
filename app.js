@@ -667,16 +667,29 @@
           btn.appendChild(tm);
         }
         
-        // Delete button
+        // Delete button (2-step confirm for Kindle compatibility)
         var del = document.createElement('button');
         del.className = 'btn btn--sm btn--delete';
         del.textContent = '[DEL]';
         del.setAttribute('aria-label', 'Delete session ' + s.id);
+        
+        var confirmTimeout = null;
         del.onclick = function (ev) {
           ev.stopPropagation();
-          if (confirm('Delete session ' + s.id + '?')) {
+          if (del.textContent === '[SURE?]') {
             deleteSession(s.id);
             renderSessionsList();
+          } else {
+            del.textContent = '[SURE?]';
+            del.style.background = 'var(--ink)';
+            del.style.color = 'var(--paper)';
+            // Revert after 3 seconds if not confirmed
+            if (confirmTimeout) clearTimeout(confirmTimeout);
+            confirmTimeout = setTimeout(function() {
+              del.textContent = '[DEL]';
+              del.style.background = '';
+              del.style.color = '';
+            }, 3000);
           }
         };
         btn.appendChild(del);
