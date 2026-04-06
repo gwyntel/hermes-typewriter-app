@@ -41,7 +41,7 @@ Follow these phases to get the typewriter live on a Kindle:
    - If the health check fails, read the current configuration from `~/.hermes/.env`.
    - Look for `API_SERVER_ENABLED` and `API_SERVER_KEY`.
    - If `API_SERVER_ENABLED` is missing or `false`, inform the user you will enable it.
-   - If `API_SERVER_KEY` exists, take note of it. If not, default to suggesting `donthackme`.
+   - If `API_SERVER_KEY` exists, take note of it. If not, inform the user they need to set an API key.
 
 3. **Ensure Gateway is Running**:
    - Check if the gateway is running (`lsof -ti :8642`).
@@ -60,7 +60,7 @@ Follow these phases to get the typewriter live on a Kindle:
      # Ngrok (if installed)
      nohup ./serve.sh --tunnel ngrok > typewriter_serve.log 2>&1 &
      ```
-   - *Note*: You can use `--port` if needed (default: 8643).
+   - *Note*: You can use `--port` if needed (default: 8644).
 
 2. **Monitor the Log**:
    - Check `typewriter_serve.log` to find the tunnel URL (`.trycloudflare.com` or `.ngrok-free.app`).
@@ -76,7 +76,7 @@ Follow these phases to get the typewriter live on a Kindle:
 ### Phase 4: Verification
 
 1. **Confirm Health**:
-   - Use `curl -H "Authorization: Bearer donthackme" http://localhost:8643/v1/models` to verify the proxy is talking to the gateway.
+   - Use `curl -H "Authorization: Bearer <API_SERVER_KEY>" http://localhost:8644/v1/models` to verify the proxy is talking to the gateway.
    - If it returns JSON, the setup is successful.
 
 ## Reporting

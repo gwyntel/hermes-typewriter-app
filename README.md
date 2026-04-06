@@ -41,10 +41,10 @@ Run the serve script to start the local server and establish a tunnel. It defaul
 
 ```bash
 # Default (Cloudflare)
-./serve.sh --port 8643
+./serve.sh --port 8644
 
 # Using Ngrok (requires ngrok in PATH)
-./serve.sh --tunnel ngrok --port 8643
+./serve.sh --tunnel ngrok --port 8644
 ```
 
 The script will provide a `trycloudflare.com` or `ngrok.app` URL. Open this URL in your Kindle's browser.

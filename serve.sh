@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-PORT="8643"
+PORT="8644"
 TUNNEL_TYPE="cloudflare" # default
 
 # --- Argument Parsing ---
@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
       exit 1
       ;;
     *)
-      # Fallback for positional port argument: ./serve.sh 8643
+      # Fallback for positional port argument: ./serve.sh 8644
       PORT="$1"
       shift
       ;;
@@ -86,6 +86,17 @@ fi
 
 # --- Start Proxy + Static server ---
 echo "[*] Starting proxy server on http://localhost:${PORT}..."
+
+# Load API key if present in hermes-agent config
+if [ -f "$HOME/.hermes/.env" ]; then
+  # Extract key manually to avoid accidental shell execution of .env
+  EXTRACTED_KEY=$(grep '^API_SERVER_KEY=' "$HOME/.hermes/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'")
+  if [ -n "$EXTRACTED_KEY" ]; then
+    export API_SERVER_KEY="$EXTRACTED_KEY"
+    echo "[*] Loaded API key from ~/.hermes/.env"
+  fi
+fi
+
 export HERMES_URL="${HERMES_URL:-http://localhost:8642}"
 python3 server.py "$PORT" &
 SERVER_PID=$!
@@ -160,15 +171,7 @@ if [ "$HAS_TUNNEL" = true ]; then
     echo -n "."
     sleep 1
   done
-    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
-      echo " ❌"
-      echo "[!] Tunnel exited unexpectedly. Log:"
-      cat "$TUNNEL_LOG"
-      exit 1
-    fi
-    echo -n "."
-    sleep 1
-  done
+
 
   if [[ -n "$TUNNEL_URL" ]]; then
     echo " ✅"

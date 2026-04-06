@@ -7,7 +7,7 @@ import os
 import sys
 
 # --- CONFIG ---
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8643
+PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8644
 HERMES_URL = os.environ.get("HERMES_URL", "http://localhost:8642")
 
 def get_hermes_host():
@@ -45,6 +45,11 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
         # Forward relevant headers, add auth passthrough
         skip = {"host", "connection", "accept-encoding", "transfer-encoding"}
         headers = {k: v for k, v in self.headers.items() if k.lower() not in skip}
+        
+        # Inject API key from environment if not present in request
+        if "Authorization" not in headers and "API_SERVER_KEY" in os.environ:
+            headers["Authorization"] = "Bearer " + os.environ["API_SERVER_KEY"]
+            
         headers["Host"] = hermes_host
 
         body = None
