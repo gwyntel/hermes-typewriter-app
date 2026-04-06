@@ -54,7 +54,8 @@
 
     connected: false,
     sending: false,
-    lastError: null
+    lastError: null,
+    dark: false
   };
 
   // === DOM CACHE ===
@@ -70,7 +71,7 @@
       'settings-toggle', 'settings-panel',
       'setting-url', 'setting-key',
       'setting-mode-streaming', 'setting-mode-responses',
-      'setting-max-turns', 'mode-hint',
+      'setting-max-turns', 'setting-dark-mode', 'mode-hint',
       'test-connection-btn', 'settings-save',
       'back-btn', 'session-title', 'chat-mode-badge',
       'load-earlier', 'load-earlier-btn',
@@ -103,6 +104,7 @@
         apiKey: state.apiKey,
         mode: state.mode,
         maxTurns: state.maxTurns,
+        dark: state.dark,
         sessions: meta
       }));
     } catch (e) { /* silent fail on Kindle */ }
@@ -138,8 +140,10 @@
         state.apiKey = d.apiKey || '';
         state.mode = d.mode || DEFAULT_MODE;
         state.maxTurns = d.maxTurns || DEFAULT_TURNS;
+        state.dark = !!d.dark;
         state.sessions = d.sessions || [];
       }
+      applyDarkMode();
     } catch (e) { /* use defaults */ }
   }
 
@@ -615,7 +619,7 @@
     if (E['chat-mode-badge']) { E['chat-mode-badge'].textContent = m === 'streaming' ? '\u25CE' : '\u2630'; }
     if (E['mode-hint']) {
       E['mode-hint'].textContent = m === 'streaming'
-        ? 'SSE stream. Messages stored locally (last ' + state.maxTurns + ' turns shown).'
+        ? 'SSE stream. Local storage (last ' + state.maxTurns + ' turns shown).'
         : 'Blocking. History paged from server. Minimal local storage.';
     }
   }
@@ -662,8 +666,22 @@
           tm.textContent = formatTime(s.time);
           btn.appendChild(tm);
         }
+        
+        // Delete button
+        var del = document.createElement('button');
+        del.className = 'btn btn--sm btn--delete';
+        del.textContent = '[DEL]';
+        del.setAttribute('aria-label', 'Delete session ' + s.id);
+        del.onclick = function (ev) {
+          ev.stopPropagation();
+          if (confirm('Delete session ' + s.id + '?')) {
+            deleteSession(s.id);
+            renderSessionsList();
+          }
+        };
+        btn.appendChild(del);
 
-        btn.addEventListener('click', function () { openSession(s.id); });
+        btn.onclick = function () { openSession(s.id); };
         frag.appendChild(btn);
       })(state.sessions[i]);
     }
@@ -793,6 +811,48 @@
     E['load-earlier'].style.display = state.hasEarlier ? '' : 'none';
   }
 
+  function applyDarkMode() {
+    var root = document.documentElement;
+    if (state.dark) {
+      root.classList.add('dark-mode');
+      root.classList.remove('light-mode');
+    } else {
+      root.classList.remove('dark-mode');
+      root.classList.add('light-mode');
+    }
+  }
+
+  function toggleSettings() {
+    var isOff = E['settings-panel'].style.display === 'none';
+    E['settings-panel'].style.display = isOff ? '' : 'none';
+    if (isOff) {
+      E['setting-url'].value = state.serverUrl;
+      E['setting-key'].value = state.apiKey;
+      E['setting-max-turns'].value = state.maxTurns;
+      E['setting-dark-mode'].checked = !!state.dark;
+      E['setting-mode-' + state.mode].checked = true;
+      renderModeBadge();
+    }
+  }
+
+  function saveSettings() {
+    state.serverUrl = E['setting-url'].value.trim() || DEFAULT_URL;
+    state.apiKey = E['setting-key'].value.trim();
+    state.maxTurns = parseInt(E['setting-max-turns'].value, 10) || DEFAULT_TURNS;
+    state.dark = !!E['setting-dark-mode'].checked;
+    
+    var m = 'streaming';
+    if (E['setting-mode-responses'].checked) m = 'responses';
+    state.mode = m;
+
+    applyDarkMode();
+    saveMeta();
+    toggleSettings();
+    renderModeBadge();
+    checkHealth(false);
+    renderSessionsList();
+  }
+
   // === SESSION OPEN ===
   function openSession(id) {
     var session = upsertSession(id);
@@ -874,36 +934,8 @@
     });
 
     // Settings
-    E['settings-toggle'].addEventListener('click', function () {
-      var p = E['settings-panel'];
-      p.style.display = p.style.display === 'none' ? '' : 'none';
-    });
-
-    // Live mode hint update
-    var modeRadios = document.querySelectorAll('input[name="setting-mode"]');
-    for (var i = 0; i < modeRadios.length; i++) {
-      modeRadios[i].addEventListener('change', function () {
-        var sel = document.querySelector('input[name="setting-mode"]:checked');
-        if (sel) {
-          var m = sel.value;
-          E['mode-hint'].textContent = m === 'streaming'
-            ? 'SSE stream. Messages stored locally. Last ' + (E['setting-max-turns'].value || state.maxTurns) + ' turns shown.'
-            : 'Blocking. History paged from server. Minimal local storage.';
-        }
-      });
-    }
-
-    E['settings-save'].addEventListener('click', function () {
-      var sel = document.querySelector('input[name="setting-mode"]:checked');
-      state.serverUrl = E['setting-url'].value.trim() || DEFAULT_URL;
-      state.apiKey = E['setting-key'].value || '';
-      state.mode = sel ? sel.value : state.mode;
-      state.maxTurns = parseInt(E['setting-max-turns'].value, 10) || DEFAULT_TURNS;
-      saveMeta();
-      renderModeBadge();
-      checkHealth();
-      E['settings-panel'].style.display = 'none';
-    });
+    E['settings-toggle'].addEventListener('click', toggleSettings);
+    E['settings-save'].addEventListener('click', saveSettings);
 
     E['test-connection-btn'].addEventListener('click', function () {
       state.serverUrl = E['setting-url'].value.trim() || state.serverUrl;
@@ -963,16 +995,6 @@
 
     cacheDom();
     loadMeta();
-
-    // Populate settings UI
-    E['setting-url'].value = state.serverUrl;
-    E['setting-key'].value = state.apiKey;
-    E['setting-max-turns'].value = state.maxTurns;
-
-    var modeStreamEl = E['setting-mode-streaming'];
-    var modeRespEl = E['setting-mode-responses'];
-    if (state.mode === 'streaming') { if (modeStreamEl) modeStreamEl.checked = true; }
-    else { if (modeRespEl) modeRespEl.checked = true; }
 
     renderModeBadge();
     bindEvents();

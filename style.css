@@ -62,19 +62,31 @@
   --sp-12:       48px;
 }
 
-/* Dark Mode - Inverted for Night Reading */
+/* High Contrast / Manual Dark Mode Override */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light-mode) {
     --paper:       #000000;
     --paper-dim:   #1A1A1A;
     --ink:         #FFFFFF;
-    --ink-mid:     #BBBBBB;
-    --ink-faint:   #888888;
+    --ink-mid:     #CCCCCC; /* Brighter for better visibility */
+    --ink-faint:   #AAAAAA; /* Brighter for better visibility */
     --border:      #FFFFFF;
     --border-lt:   #444444;
-    --white:       #1A1A1A;
+    --white:       #000000;
     --black:       #FFFFFF;
   }
+}
+
+:root.dark-mode {
+  --paper:       #000000;
+  --paper-dim:   #1A1A1A;
+  --ink:         #FFFFFF;
+  --ink-mid:     #CCCCCC;
+  --ink-faint:   #AAAAAA;
+  --border:      #FFFFFF;
+  --border-lt:   #444444;
+  --white:       #000000;
+  --black:       #FFFFFF;
 }
 
 /* Kindle Pixel Density Correction (High Resolution)
@@ -222,6 +234,23 @@ h1 {
   border-color: var(--border);
 }
 .btn--send { padding: 12px 20px; }
+.btn--delete {
+  border-color: var(--border-lt);
+  color: var(--ink-mid);
+  font-size: 10px;
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0;
+  position: absolute;
+  top: 50%;
+  right: var(--sp-2);
+  margin-top: -24px;
+}
+.btn--delete:active {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
 
 /* --- INPUTS --- */
 .input {
@@ -323,9 +352,10 @@ label {
   width: 100%;
   text-align: left;
   padding: var(--sp-8);
+  padding-right: 64px; /* Space for delete button */
   border: none;
   border-bottom: 1px solid var(--border-lt);
-  background: none;
+  background: var(--paper);
   cursor: pointer;
   font-family: var(--font);
   min-height: 48px;
