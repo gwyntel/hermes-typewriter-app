@@ -13,47 +13,61 @@
   <header id="header">
     <div class="header-row">
       <h1 id="title">HERMES</h1>
-      <span id="status" class="status status--offline">[OFFLINE]</span>
+      <div class="header-meta">
+        <span id="mode-badge" class="mode-badge">[STREAM]</span>
+        <span id="status" class="status status--offline">[OFFLINE]</span>
+      </div>
     </div>
     <div class="rule rule--heavy"></div>
   </header>
 
-  <!-- ====== THREAD LIST VIEW ====== -->
-  <section id="threads-view" class="view">
+  <!-- ====== SESSION LIST VIEW ====== -->
+  <section id="sessions-view" class="view">
 
     <div class="section-bar">
-      <span class="section-label">Threads</span>
-      <button id="new-thread-btn" class="btn btn--sm" aria-label="Create new thread">[+ NEW]</button>
+      <span class="section-label">Sessions</span>
+      <button id="new-session-btn" class="btn btn--sm" aria-label="Create new session">[+ NEW]</button>
     </div>
 
-    <!-- New thread inline form -->
-    <div id="new-thread-form" class="inline-form" style="display:none">
-      <label for="new-thread-input">Name:</label>
-      <input type="text" id="new-thread-input" class="input" placeholder="my-project" autocomplete="off" />
+    <!-- New session inline form -->
+    <div id="new-session-form" class="inline-form" style="display:none">
+      <label for="new-session-input">Session ID:</label>
+      <input
+        type="text"
+        id="new-session-input"
+        class="input"
+        placeholder="my-project-2024"
+        autocomplete="off"
+        maxlength="64"
+        pattern="[a-zA-Z0-9_-]+"
+        title="Letters, numbers, hyphens and underscores only (3-64 chars)"
+      />
+      <div id="new-session-error" class="form-error" style="display:none"></div>
       <div class="inline-form-actions">
-        <button id="new-thread-cancel" class="btn btn--sm" aria-label="Cancel new thread">[CANCEL]</button>
-        <button id="new-thread-create" class="btn btn--sm btn--primary" aria-label="Create thread">[CREATE]</button>
+        <button id="new-session-cancel" class="btn btn--sm" aria-label="Cancel">[CANCEL]</button>
+        <button id="new-session-create" class="btn btn--sm btn--primary" aria-label="Create session">[CREATE]</button>
       </div>
     </div>
 
-    <!-- Thread list -->
-    <div id="threads-list" class="threads-list"></div>
+    <!-- Session list -->
+    <div id="sessions-list" class="threads-list"></div>
 
-    <div id="threads-empty" class="empty-state">
-      <p>No threads yet.</p>
-      <p class="muted">Press [+ NEW] to begin.</p>
+    <div id="sessions-empty" class="empty-state">
+      <p>No sessions yet.</p>
+      <p class="muted">Press [+ NEW] to begin a named conversation.</p>
     </div>
 
     <div class="rule"></div>
 
-    <!-- Rejoin existing conversation -->
+    <!-- Join existing session by ID -->
     <div class="section-bar">
       <span class="section-label">Rejoin</span>
     </div>
     <div class="rejoin-form">
-      <label for="rejoin-input">Conversation name:</label>
-      <input type="text" id="rejoin-input" class="input" placeholder="existing-thread" autocomplete="off" />
-      <button id="rejoin-btn" class="btn btn--sm" aria-label="Join thread">[JOIN]</button>
+      <label for="rejoin-input">Session ID:</label>
+      <input type="text" id="rejoin-input" class="input" placeholder="existing-session-id" autocomplete="off" maxlength="64" />
+      <div id="rejoin-error" class="form-error" style="display:none"></div>
+      <button id="rejoin-btn" class="btn btn--sm" aria-label="Rejoin session">[JOIN]</button>
     </div>
 
     <div class="rule"></div>
@@ -64,7 +78,7 @@
       <div class="settings-field">
         <label for="setting-url">Server:</label>
         <div class="input-group">
-          <input type="text" id="setting-url" class="input" value="http://localhost:8642" />
+          <input type="text" id="setting-url" class="input" />
           <button id="test-connection-btn" class="btn btn--sm" aria-label="Test connection">[TEST]</button>
         </div>
       </div>
@@ -73,10 +87,22 @@
         <input type="password" id="setting-key" class="input" placeholder="Bearer token" />
       </div>
       <div class="settings-field">
-        <label for="setting-stream" class="checkbox-label">
-          <input type="checkbox" id="setting-stream" />
-          <span>Enable streaming</span>
-        </label>
+        <span class="settings-label">Mode:</span>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" name="setting-mode" id="setting-mode-streaming" value="streaming" />
+            <span>Stream</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="setting-mode" id="setting-mode-responses" value="responses" />
+            <span>Responses</span>
+          </label>
+        </div>
+        <div class="mode-hint" id="mode-hint"></div>
+      </div>
+      <div class="settings-field">
+        <label for="setting-max-turns">Max turns shown:</label>
+        <input type="number" id="setting-max-turns" class="input input--narrow" min="2" max="100" />
       </div>
       <button id="settings-save" class="btn btn--sm btn--primary" aria-label="Save settings">[SAVE]</button>
     </div>
@@ -86,11 +112,12 @@
   <section id="chat-view" class="view" style="display:none">
 
     <div class="section-bar">
-      <button id="back-btn" class="btn btn--sm" aria-label="Go back">[<- BACK]</button>
-      <span id="thread-title" class="thread-title"></span>
+      <button id="back-btn" class="btn btn--sm" aria-label="Go back">[&lt;- BACK]</button>
+      <span id="session-title" class="thread-title"></span>
+      <span id="chat-mode-badge" class="mode-badge mode-badge--sm"></span>
     </div>
 
-    <!-- Lazy-load earlier messages -->
+    <!-- Load earlier messages (responses mode paging / streaming scroll) -->
     <div id="load-earlier" style="display:none">
       <button id="load-earlier-btn" class="btn btn--block btn--subtle">
         [Load earlier messages...]
@@ -102,7 +129,7 @@
 
     <!-- Typing indicator -->
     <div id="typing-indicator" class="typing-indicator" style="display:none">
-      <span class="muted">hermes is typing_</span>
+      <span class="muted">hermes is thinking_</span>
     </div>
 
     <!-- Input area -->

@@ -1,18 +1,41 @@
-// Hermes Typewriter Configuration
-// Pre-configured for Tailscale access — modify as needed
-
+/**
+ * Hermes Typewriter — Runtime Configuration
+ * Edit these values to match your deployment.
+ */
 window.HERMES_CONFIG = {
-  // The base URL of your hermes-agent API server
-  // Leave empty to use the proxy built into server.py (recommended)
-  // Set only if you want to bypass the proxy and connect directly
-  serverUrl: '',
+  // Server URL (proxied through serve.sh)
+  serverUrl: window.location.origin,
 
-  // Default API key (matches HERMES_API_KEY on the server)
-  // Leave empty if no auth required, or set your key here
+  // API key (leave blank if gateway has no auth)
   apiKey: '',
 
-  // Default streaming preference
-  // true = streaming responses (faster feel, more e-ink refreshes)
-  // false = blocking responses (simpler, fewer refreshes)
-  streaming: true
+  /**
+   * Chat mode:
+   *   'streaming'  — uses /v1/chat/completions SSE + localStorage for messages
+   *                  fast feedback, visible tool badges, limited history (last N turns)
+   *
+   *   'responses'  — uses /v1/responses (blocking) + server-side response chain
+   *                  full paged history, minimal localStorage (only lastResponseId)
+   *                  ideal for long-running conversations on low-memory devices
+   */
+  mode: 'streaming',
+
+  /**
+   * Max turns to display in the chat view at once.
+   *
+   * Streaming mode: last N user+assistant pairs are rendered; older ones exist
+   *   only in localStorage and are not re-rendered unless the user scrolls.
+   *
+   * Responses mode: when the current view has >= maxTurns pairs, the
+   *   [Load earlier] button appears so users can page in the prior responses
+   *   from the server (no client-side storage of content needed).
+   */
+  maxTurns: 8,
+
+  // System instructions sent to the agent
+  instructions: "You are communicating with a user on an e-ink typewriter. " +
+    "DO NOT use modern native emojis — they render as missing boxes on Kindle. " +
+    "Standard text symbols (*, -, >, etc.) and ASCII art are fine. " +
+    "Use markdown formatting freely. " +
+    "Inference is slow on this device, so be concise unless depth is explicitly requested."
 };

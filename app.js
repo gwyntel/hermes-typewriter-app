@@ -1,53 +1,50 @@
 (function() {
   'use strict';
 
-  // === CONFIG DEFAULTS ===
-  var CONFIG = window.HERMES_CONFIG || {};
-  // Default to proxying through the app server itself (current origin)
-  var DEFAULT_URL = CONFIG.serverUrl || window.location.origin;
-  var DEFAULT_KEY = CONFIG.apiKey || '';
-  var DEFAULT_STREAM = !!CONFIG.streaming;
-  var TIMEOUT_MS = 120000;
-  var MAX_RETRIES = 3;
-  var RETRY_DELAY_MS = 1000;
+  // === CONFIG ===
+  var CFG = window.HERMES_CONFIG || {};
+  var DEFAULT_URL   = CFG.serverUrl   || window.location.origin;
+  var DEFAULT_KEY   = CFG.apiKey      || '';
+  var DEFAULT_MODE  = CFG.mode        || 'streaming';   // 'streaming' | 'responses'
+  var DEFAULT_TURNS = CFG.maxTurns    || 8;
+  var DEFAULT_INST  = CFG.instructions || '';
+  var TIMEOUT_MS    = 180000; // 3 min (inference is slow)
 
-  // Tool icon map (ASCII — no emoji on Kindle)
-  var TOOL_ICONS = {
-    terminal: '[>_]', shell: '[>_]', bash: '[>_]',
-    search: '[?]', web_search: '[?]',
-    file_read: '[~]', read_file: '[~]', view_file: '[~]',
-    file_write: '[+]', write_file: '[+]', create_file: '[+]',
-    memory: '[@]', recall: '[@]',
-    skill: '[*]', default: '[*]'
-  };
+  // Session ID rules: letters, numbers, hyphens, underscores, 3-64 chars
+  var SESSION_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
 
-  // Emoji-to-ASCII for streaming tool indicators
-  // Use actual emoji chars (surrogate pairs) — avoid \u{} syntax for Chromium 75
+  // === EMOJI → ASCII (Kindle has no emoji font) ===
   var EMOJI_LIST = [
-    ['\uD83D\uDCBB', '[>_]'],
-    ['\uD83D\uDD0D', '[?]'],
-    ['\uD83D\uDCC1', '[~]'],
-    ['\uD83D\uDCDD', '[+]'],
-    ['\uD83E\uDDE0', '[@]'],
-    ['\u2699', '[*]'],
-    ['\uD83D\uDD27', '[*]']
+    ['\uD83D\uDCBB', '[>_]'],  // laptop / terminal
+    ['\uD83D\uDD0D', '[?]'],   // magnifier / search
+    ['\uD83D\uDCC1', '[~]'],   // folder / file read
+    ['\uD83D\uDCDD', '[+]'],   // memo / write
+    ['\uD83E\uDDE0', '[@]'],   // brain / memory
+    ['\u2699',       '[*]'],   // gear / settings
+    ['\uD83D\uDD27', '[*]'],   // wrench / tool
+    ['\uD83C\uDF10', '[web]'], // globe / web
+    ['\uD83D\uDCE6', '[pkg]'], // package
   ];
 
   // === STATE ===
   var state = {
     serverUrl: DEFAULT_URL,
-    apiKey: DEFAULT_KEY,
-    streaming: DEFAULT_STREAM,
+    apiKey:    DEFAULT_KEY,
+    mode:      DEFAULT_MODE,    // 'streaming' | 'responses'
+    maxTurns:  DEFAULT_TURNS,
+
+    sessions:         [],       // [{id, mode, preview, time, lastResponseId?, messageCount?}]
+    activeSession:    null,     // string session ID
+    messages:         [],       // current view buffer [{role, content, tools}]
+
+    // Responses-mode paging
+    latestResponseId:    null,
+    earliestResponseId:  null,
+    hasEarlier:          false,
+    loadingEarlier:      false,
+
     connected: false,
-    threads: [],
-    activeThread: null,
-    messages: [],
-    sending: false,
-    latestResponseId: null,
-    earliestResponseId: null,
-    hasEarlier: false,
-    loadingEarlier: false,
-    retryCount: 0,
+    sending:   false,
     lastError: null
   };
 
@@ -55,14 +52,18 @@
   var E = {};
   function cacheDom() {
     var ids = [
-      'status', 'threads-view', 'chat-view', 'threads-list', 'threads-empty',
-      'new-thread-btn', 'new-thread-form', 'new-thread-input',
-      'new-thread-cancel', 'new-thread-create',
-      'rejoin-input', 'rejoin-btn',
-      'settings-toggle', 'settings-panel', 'setting-url', 'setting-key',
-      'test-connection-btn',
-      'setting-stream', 'settings-save',
-      'back-btn', 'thread-title',
+      'status', 'mode-badge',
+      'sessions-view', 'chat-view',
+      'sessions-list', 'sessions-empty',
+      'new-session-btn', 'new-session-form', 'new-session-input',
+      'new-session-error', 'new-session-cancel', 'new-session-create',
+      'rejoin-input', 'rejoin-error', 'rejoin-btn',
+      'settings-toggle', 'settings-panel',
+      'setting-url', 'setting-key',
+      'setting-mode-streaming', 'setting-mode-responses',
+      'setting-max-turns', 'mode-hint',
+      'test-connection-btn', 'settings-save',
+      'back-btn', 'session-title', 'chat-mode-badge',
       'load-earlier', 'load-earlier-btn',
       'messages', 'typing-indicator',
       'message-input', 'send-btn'
@@ -73,25 +74,62 @@
   }
 
   // === PERSISTENCE ===
-  function save() {
+  var LS_META_KEY = 'hermes_tw_sessions_v2';  // only session metadata
+  var LS_MSG_PREFIX = 'hermes_tw_msgs_';      // streaming mode message arrays
+
+  function saveMeta() {
     try {
-      localStorage.setItem('hermes_tw', JSON.stringify({
+      // Never store message content in session metadata
+      var meta = state.sessions.map(function(s) {
+        return {
+          id:             s.id,
+          mode:           s.mode,
+          preview:        s.preview,
+          time:           s.time,
+          lastResponseId: s.lastResponseId || null
+        };
+      });
+      localStorage.setItem(LS_META_KEY, JSON.stringify({
         serverUrl: state.serverUrl,
-        apiKey: state.apiKey,
-        streaming: state.streaming,
-        threads: state.threads
+        apiKey:    state.apiKey,
+        mode:      state.mode,
+        maxTurns:  state.maxTurns,
+        sessions:  meta
       }));
-    } catch (e) { /* Kindle may wipe — silent fail */ }
+    } catch (e) { /* silent fail on Kindle */ }
   }
 
-  function load() {
+  /** Streaming mode: persist messages for a session */
+  function saveMessages(sessionId, messages) {
     try {
-      var d = JSON.parse(localStorage.getItem('hermes_tw') || 'null');
+      // Cap stored messages to maxTurns * 2 to respect Kindle storage limits
+      var cap = state.maxTurns * 4; // generous buffer
+      var store = messages.slice(-cap);
+      localStorage.setItem(LS_MSG_PREFIX + sessionId, JSON.stringify(store));
+    } catch (e) { /* silent */ }
+  }
+
+  /** Streaming mode: load persisted messages for a session */
+  function loadMessages(sessionId) {
+    try {
+      return JSON.parse(localStorage.getItem(LS_MSG_PREFIX + sessionId) || 'null') || [];
+    } catch (e) { return []; }
+  }
+
+  /** Responses mode: remove any stored messages for a session (not needed) */
+  function clearMessages(sessionId) {
+    try { localStorage.removeItem(LS_MSG_PREFIX + sessionId); } catch (e) {}
+  }
+
+  function loadMeta() {
+    try {
+      var d = JSON.parse(localStorage.getItem(LS_META_KEY) || 'null');
       if (d) {
         state.serverUrl = d.serverUrl || DEFAULT_URL;
-        state.apiKey = d.apiKey || '';
-        state.streaming = !!d.streaming;
-        state.threads = d.threads || [];
+        state.apiKey    = d.apiKey    || '';
+        state.mode      = d.mode      || DEFAULT_MODE;
+        state.maxTurns  = d.maxTurns  || DEFAULT_TURNS;
+        state.sessions  = d.sessions  || [];
       }
     } catch (e) { /* use defaults */ }
   }
@@ -99,22 +137,23 @@
   // === HELPERS ===
   function replaceEmoji(text) {
     if (!text) return '';
-    var result = text;
+    var r = text;
     for (var i = 0; i < EMOJI_LIST.length; i++) {
-      result = result.split(EMOJI_LIST[i][0]).join(EMOJI_LIST[i][1]);
+      r = r.split(EMOJI_LIST[i][0]).join(EMOJI_LIST[i][1]);
     }
-    return result;
+    return r;
   }
 
   function escapeHtml(s) {
     if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function renderMarkdown(text) {
     if (!text) return '';
     var h = escapeHtml(text);
-    h = h.replace(/```([a-z]*)\n([\s\S]*?)```/g, function(_, lang, code) {
+    h = h.replace(/```([a-z]*)\n([\s\S]*?)```/g, function(_, _lang, code) {
       return '<pre class="code-block">' + code.trim() + '</pre>';
     });
     h = h.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
@@ -126,119 +165,92 @@
 
   function formatTime(ts) {
     if (!ts) return '';
-    var d = new Date(ts);
-    var now = new Date();
-    var diff = now - d;
-    if (diff < 60000) return 'just now';
+    var d = new Date(ts), now = new Date(), diff = now - d;
+    if (diff < 60000)   return 'just now';
     if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
     if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
     return d.toLocaleDateString();
   }
 
   function scrollToBottom() {
-    // Use direct scroll for Kindle compatibility (no smooth scrolling)
     window.scrollTo(0, document.body.scrollHeight);
   }
 
-  // Kindle-compatible scrollIntoView fallback
   function scrollIntoViewKindle(el) {
     if (!el) return;
     try {
-      // Try modern API first, fallback to direct scroll
-      if (el.scrollIntoView && typeof el.scrollIntoView === 'function') {
-        el.scrollIntoView(false); // 'false' = align to bottom, works better on Kindle
-      } else {
-        var rect = el.getBoundingClientRect();
-        var scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        window.scrollTo(0, scrollTop + rect.top - 50);
+      if (el.scrollIntoView) { el.scrollIntoView(false); }
+      else {
+        var r = el.getBoundingClientRect();
+        window.scrollTo(0, (window.pageYOffset || 0) + r.top - 50);
       }
-    } catch (e) {
-      // Fallback: just scroll to bottom of page
-      window.scrollTo(0, document.body.scrollHeight);
+    } catch (e) { window.scrollTo(0, document.body.scrollHeight); }
+  }
+
+  // Validate session ID format
+  function validateSessionId(id) {
+    if (!id || !id.trim()) return 'Session ID cannot be empty.';
+    if (!SESSION_ID_RE.test(id.trim())) {
+      return 'Only letters, numbers, hyphens (-) and underscores (_) allowed. 3-64 chars.';
     }
+    return null; // valid
   }
 
-  // Retry with exponential backoff
-  function fetchWithRetry(url, options, retryCount) {
-    retryCount = retryCount || 0;
-    return fetch(url, options).catch(function(err) {
-      if (retryCount < MAX_RETRIES && isNetworkError(err)) {
-        state.retryCount = retryCount + 1;
-        var delay = RETRY_DELAY_MS * Math.pow(2, retryCount);
-        return new Promise(function(resolve, reject) {
-          setTimeout(function() {
-            fetchWithRetry(url, options, retryCount + 1).then(resolve).catch(reject);
-          }, delay);
-        });
-      }
-      throw err;
-    });
-  }
-
-  function isNetworkError(err) {
-    if (!err) return false;
-    var msg = err.message || String(err);
-    return msg.indexOf('network') !== -1 ||
-           msg.indexOf('Network') !== -1 ||
-           msg.indexOf('Failed to fetch') !== -1 ||
-           err.name === 'TypeError';
-  }
-
-  // === THREADS ===
-  function findThread(name) {
-    for (var i = 0; i < state.threads.length; i++) {
-      if (state.threads[i].name === name) return state.threads[i];
+  // === SESSION MANAGEMENT ===
+  function findSession(id) {
+    for (var i = 0; i < state.sessions.length; i++) {
+      if (state.sessions[i].id === id) return state.sessions[i];
     }
     return null;
   }
 
-  function upsertThread(name) {
-    var t = findThread(name);
-    if (!t) {
-      t = { name: name, lastResponseId: null, preview: '', time: Date.now() };
-      state.threads.unshift(t);
+  function upsertSession(id, mode) {
+    var s = findSession(id);
+    if (!s) {
+      s = { id: id, mode: mode || state.mode, preview: '', time: Date.now(), lastResponseId: null };
+      state.sessions.unshift(s);
     }
-    return t;
+    return s;
   }
 
-  function touchThread(name, preview, responseId) {
-    var t = upsertThread(name);
-    if (preview) t.preview = preview.substring(0, 80);
-    if (responseId) t.lastResponseId = responseId;
-    t.time = Date.now();
-    // Move to top
-    var idx = state.threads.indexOf(t);
-    if (idx > 0) {
-      state.threads.splice(idx, 1);
-      state.threads.unshift(t);
-    }
-    save();
+  function touchSession(id, preview, responseId) {
+    var s = upsertSession(id);
+    if (preview) s.preview = preview.substring(0, 80);
+    if (responseId) s.lastResponseId = responseId;
+    s.time = Date.now();
+    // Bubble to top
+    var idx = state.sessions.indexOf(s);
+    if (idx > 0) { state.sessions.splice(idx, 1); state.sessions.unshift(s); }
+    saveMeta();
   }
 
-  function deleteThread(name) {
-    state.threads = state.threads.filter(function(t) { return t.name !== name; });
-    save();
+  function deleteSession(id) {
+    clearMessages(id);
+    state.sessions = state.sessions.filter(function(s) { return s.id !== id; });
+    saveMeta();
   }
 
-  // === API ===
-  function headers() {
+  // === API HEADERS ===
+  function headers(includeSession) {
     var h = { 'Content-Type': 'application/json' };
     if (state.apiKey) h['Authorization'] = 'Bearer ' + state.apiKey;
+    if (includeSession && state.activeSession) {
+      h['X-Hermes-Session-Id'] = state.activeSession;
+    }
     return h;
   }
 
+  // === HEALTH CHECK ===
   function checkHealth(manual) {
     if (manual) E['test-connection-btn'].textContent = '[...]';
     var ctrl = new AbortController();
     var tid = setTimeout(function() { ctrl.abort(); }, 6000);
-    // Always probe /health on the proxy itself (never the configured serverUrl which points at /v1)
-    var healthUrl = window.location.origin + '/health';
-    fetch(healthUrl, { signal: ctrl.signal })
+    // Use /v1/models — requires auth, so a 401 correctly shows as disconnected
+    fetch(state.serverUrl + '/v1/models', { headers: headers(), signal: ctrl.signal })
       .then(function(r) {
         clearTimeout(tid);
         state.connected = r.ok;
-        state.retryCount = 0;
-        state.lastError = null;
+        state.lastError = r.ok ? null : 'Auth failed (' + r.status + ')';
         renderStatus();
         if (manual) E['test-connection-btn'].textContent = r.ok ? '[OK!]' : '[ERR ' + r.status + ']';
       })
@@ -250,115 +262,72 @@
         if (manual) E['test-connection-btn'].textContent = '[FAIL]';
       })
       .finally(function() {
-        if (manual) {
-          setTimeout(function() {
-            E['test-connection-btn'].textContent = '[TEST]';
-          }, 2500);
-        }
+        if (manual) setTimeout(function() { E['test-connection-btn'].textContent = '[TEST]'; }, 2500);
       });
   }
 
-
+  // === SEND MESSAGE (mode dispatcher) ===
   function sendMessage(text) {
     if (state.sending || !text.trim()) return;
     state.sending = true;
-    state.retryCount = 0;
     updateInputState();
 
-    state.messages.push({ role: 'user', content: text, tools: [] });
+    var userMsg = { role: 'user', content: text, tools: [] };
+    state.messages.push(userMsg);
     renderMessages();
 
-    var body = {
-      model: 'hermes-agent',
-      input: text,
-      store: true,
-      instructions: "You are communicating with a user on an e-ink typewriter. DO NOT use modern native emojis, as they do not have an installed device font and will render as missing boxes (standard text unicode symbols are OK). Feel free to use standard markdown formatting for emphasis. Your text is being streamed live to the user's screen bead-by-bead."
-    };
-    if (state.activeThread) body.conversation = state.activeThread;
-    if (state.streaming) {
-      body.stream = true;
-      doStreaming(body);
+    var session = findSession(state.activeSession);
+    if (!session) return;
+
+    if (session.mode === 'streaming') {
+      doStreaming(text, session);
     } else {
-      doBlocking(body);
+      doResponses(text, session);
     }
   }
 
-  function doBlocking(body) {
-    showTyping(true);
+  // ─── STREAMING MODE ─────────────────────────────────────────────────────────
+  function doStreaming(text, session) {
     var ctrl = new AbortController();
     var tid = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
+    var assistantMsg = { role: 'assistant', content: '', tools: [] };
+    state.messages.push(assistantMsg);
+    showTyping(false);
+    renderMessages();
 
-    fetch(state.serverUrl + '/v1/responses', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(body),
-      signal: ctrl.signal
+    var body = {
+      model:    'hermes-agent',
+      messages: [{ role: 'user', content: text }],
+      stream:   true
+    };
+
+    console.log('[hermes] Streaming POST /v1/chat/completions, session:', session.id);
+    fetch(state.serverUrl + '/v1/chat/completions', {
+      method:  'POST',
+      headers: headers(true), // include X-Hermes-Session-Id
+      body:    JSON.stringify(body),
+      signal:  ctrl.signal
     })
     .then(function(r) {
       clearTimeout(tid);
       if (!r.ok) {
         return r.text().then(function(t) {
-          throw new Error('HTTP ' + r.status + ': ' + (t || 'Unknown error'));
+          throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
         });
       }
-      return r.json();
+      return pumpChatStream(r, assistantMsg);
     })
-    .then(function(data) {
-      var msg = parseResponseData(data);
-      state.messages.push(msg);
-      if (data.id) touchThread(state.activeThread, msg.content, data.id);
+    .then(function() {
+      // Persist messages to localStorage (streaming mode only)
+      saveMessages(session.id, state.messages);
+      touchSession(session.id, assistantMsg.content);
+      // Enforce maxTurns view (don't discard, just show notice)
+      enforceMaxTurns();
       renderMessages();
     })
     .catch(function(err) {
       var errMsg = err.message || String(err);
-      state.lastError = errMsg;
-      state.messages.push({ role: 'error', content: errMsg, tools: [] });
-      renderMessages();
-    })
-    .finally(function() {
-      state.sending = false;
-      showTyping(false);
-      updateInputState();
-    });
-  }
-
-  function doStreaming(body) {
-    showTyping(true);
-    var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
-    var msg = { role: 'assistant', content: '', tools: [] };
-
-    fetch(state.serverUrl + '/v1/responses', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    })
-    .then(function(r) {
-      clearTimeout(tid);
-      if (!r.ok) {
-        return r.text().then(function(t) {
-          throw new Error('HTTP ' + r.status + ': ' + (t || 'Unknown error'));
-        });
-      }
-
-      var contentType = r.headers.get('content-type') || '';
-      if (contentType.indexOf('application/json') !== -1) {
-        return r.json().then(function(data) {
-          var parsedMsg = parseResponseData(data);
-          state.messages.push(parsedMsg);
-          if (data.id) touchThread(state.activeThread, parsedMsg.content, data.id);
-          renderMessages();
-        });
-      }
-
-      state.messages.push(msg);
-      showTyping(false);
-      renderMessages();
-      return pumpStream(r, msg);
-    })
-    .catch(function(err) {
-      var errMsg = err.message || String(err);
+      console.error('[hermes] Stream error:', errMsg);
       state.lastError = errMsg;
       state.messages.push({ role: 'error', content: errMsg, tools: [] });
       renderMessages();
@@ -371,128 +340,141 @@
     });
   }
 
-  function pumpStream(response, msg) {
-    var reader = response.body.getReader();
+  function pumpChatStream(response, msg) {
+    var reader  = response.body.getReader();
     var decoder = new TextDecoder();
-    var buf = '';
+    var buf     = '';
 
     function read() {
       return reader.read().then(function(result) {
         if (result.done) {
-          if (buf.trim()) processSSE(buf.split('\n'), msg);
-          touchThread(state.activeThread, msg.content, state.latestResponseId);
-          renderMessages();
+          if (buf.trim()) processChatSSE(buf.split('\n'), msg);
           return;
         }
         buf += decoder.decode(result.value, { stream: true });
         var lines = buf.split('\n');
         buf = lines.pop() || '';
-        processSSE(lines, msg);
+        processChatSSE(lines, msg);
         return read();
       });
     }
     return read();
   }
 
-  function processSSE(lines, msg) {
+  function processChatSSE(lines, msg) {
     for (var i = 0; i < lines.length; i++) {
       var line = lines[i].trim();
       if (!line || line === 'data: [DONE]') continue;
       if (line.indexOf('data:') !== 0) continue;
       try {
-        var dataStr = line.substring(5).trim();
-        var d = JSON.parse(dataStr);
+        var d     = JSON.parse(line.substring(5).trim());
+        var delta = d.choices && d.choices[0] && d.choices[0].delta && d.choices[0].delta.content;
+        if (!delta) continue;
 
-        // Responses API streaming events
-        if (d.type === 'response.output_text.delta') {
-          var txtDelta = '';
-          if (typeof d.delta === 'string') txtDelta = d.delta;
-          else if (d.delta && typeof d.delta.text === 'string') txtDelta = d.delta.text;
-          else if (typeof d.text === 'string') txtDelta = d.text;
-
-          if (txtDelta) {
-            msg.content += replaceEmoji(txtDelta);
-            updateLastMessage(msg);
-          }
-        } else if (d.type === 'response.completed' && d.response) {
-          if (d.response.id) state.latestResponseId = d.response.id;
-
-          // Re-parse the complete final response to fix any streamed vs final mismatch
-          var finalMsg = parseResponseData(d.response);
-          if (finalMsg.content) msg.content = finalMsg.content;
-          if (finalMsg.tools && finalMsg.tools.length > 0) msg.tools = finalMsg.tools;
-          updateLastMessage(msg);
-        }
-
-        // Chat Completions fallback
-        if (d.choices && d.choices[0]) {
-          if (d.choices[0].delta && d.choices[0].delta.content) {
-            msg.content += replaceEmoji(d.choices[0].delta.content);
-            updateLastMessage(msg);
-          }
-          if (d.choices[0].message && d.choices[0].message.content) {
-            // Replace full content instead of appending if full message is provided
-            msg.content = replaceEmoji(d.choices[0].message.content);
-            updateLastMessage(msg);
-          }
-        }
-      } catch (e) { /* skip malformed SSE lines */ }
-    }
-  }
-
-  // === RESPONSE PARSING ===
-  function parseResponseData(data) {
-    var msg = { role: 'assistant', content: '', tools: [] };
-
-    if (data.output && Array.isArray(data.output)) {
-      for (var i = 0; i < data.output.length; i++) {
-        var item = data.output[i];
-        if (item.type === 'function_call') {
-          var name = item.name || 'tool';
-          var icon = TOOL_ICONS[name] || TOOL_ICONS['default'];
-          var args = '';
-          try {
-            var p = JSON.parse(item.arguments || '{}');
-            var k = Object.keys(p);
-            if (k.length > 0) args = String(p[k[0]]).substring(0, 60);
-          } catch (e) {
-            args = (item.arguments || '').substring(0, 60);
-          }
-          msg.tools.push({ name: name, icon: icon, args: args, callId: item.call_id || '' });
-        } else if (item.type === 'function_call_output') {
-          for (var j = msg.tools.length - 1; j >= 0; j--) {
-            if (msg.tools[j].callId === item.call_id) {
-              msg.tools[j].output = (item.output || '').substring(0, 200);
+        // Detect tool progress injected as `emoji label` by the server
+        var toolMatch = delta.match(/\n?`([^`]+)`\s?\n?/);
+        if (toolMatch) {
+          var raw  = toolMatch[1];
+          var icon = '[*]';
+          var label = raw;
+          for (var j = 0; j < EMOJI_LIST.length; j++) {
+            if (raw.indexOf(EMOJI_LIST[j][0]) === 0) {
+              icon  = EMOJI_LIST[j][1];
+              label = raw.substring(EMOJI_LIST[j][0].length).trim();
               break;
             }
           }
-        } else if (item.type === 'message') {
-          if (Array.isArray(item.content)) {
-            for (var k2 = 0; k2 < item.content.length; k2++) {
-              if (item.content[k2].type === 'output_text') {
-                msg.content += replaceEmoji(item.content[k2].text || '');
-              }
-            }
-          } else if (typeof item.content === 'string') {
-            msg.content += replaceEmoji(item.content);
-          }
+          msg.tools.push({ name: label, icon: icon, isComplete: true });
+          console.log('[hermes] Tool indicator:', label);
+        } else {
+          msg.content += replaceEmoji(delta);
         }
-      }
+        updateLastMessage(msg);
+      } catch (e) { /* partial chunk — ignore */ }
     }
-    // Chat Completions fallback
-    if (data.choices && data.choices[0] && data.choices[0].message) {
-      msg.content = replaceEmoji(data.choices[0].message.content || '');
-    }
-    return msg;
   }
 
-  // === LAZY LOADING ===
+  // ─── RESPONSES MODE ──────────────────────────────────────────────────────────
+  function doResponses(text, session) {
+    showTyping(true);
+    var ctrl = new AbortController();
+    var tid  = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
+
+    var body = {
+      model:        'hermes-agent',
+      input:        text,
+      store:        true,
+      instructions: DEFAULT_INST
+    };
+    // Use conversation name = session ID for server-side response chaining
+    body.conversation = session.id;
+
+    console.log('[hermes] Blocking POST /v1/responses, conversation:', session.id);
+    fetch(state.serverUrl + '/v1/responses', {
+      method:  'POST',
+      headers: headers(false), // no session header — responses uses conversation param
+      body:    JSON.stringify(body),
+      signal:  ctrl.signal
+    })
+    .then(function(r) {
+      clearTimeout(tid);
+      if (!r.ok) {
+        return r.text().then(function(t) {
+          throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
+        });
+      }
+      return r.json();
+    })
+    .then(function(data) {
+      var msg = parseResponseData(data);
+      state.messages.push(msg);
+
+      if (data.id) {
+        state.latestResponseId = data.id;
+        // previous_response_id tells us if there's earlier history
+        if (data.previous_response_id && !state.earliestResponseId) {
+          state.earliestResponseId = data.previous_response_id;
+        }
+        touchSession(session.id, msg.content, data.id);
+      }
+
+      // Check if we need "load earlier" based on turn count
+      updateHasEarlier();
+      renderMessages();
+    })
+    .catch(function(err) {
+      var errMsg = err.message || String(err);
+      console.error('[hermes] Responses error:', errMsg);
+      state.lastError = errMsg;
+      state.messages.push({ role: 'error', content: errMsg, tools: [] });
+      renderMessages();
+    })
+    .finally(function() {
+      state.sending = false;
+      showTyping(false);
+      updateInputState();
+    });
+  }
+
+  // ─── RESPONSES MODE: HISTORY PAGING ──────────────────────────────────────────
+  function updateHasEarlier() {
+    var session = findSession(state.activeSession);
+    if (!session || session.mode === 'streaming') {
+      state.hasEarlier = false;
+    } else {
+      // Show load-earlier if server has older responses OR we've hit maxTurns
+      var turnPairs = Math.floor(state.messages.length / 2);
+      state.hasEarlier = !!state.earliestResponseId && (turnPairs >= state.maxTurns);
+    }
+    updateLoadEarlierUI();
+  }
+
   function loadEarlier() {
     if (state.loadingEarlier || !state.earliestResponseId) return;
     state.loadingEarlier = true;
     E['load-earlier-btn'].textContent = '[Loading...]';
 
-    fetch(state.serverUrl + '/v1/responses/' + state.earliestResponseId, { headers: headers() })
+    fetch(state.serverUrl + '/v1/responses/' + state.earliestResponseId, { headers: headers(false) })
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
@@ -501,67 +483,99 @@
         var msgs = responseToMessages(data);
         state.messages = msgs.concat(state.messages);
         state.earliestResponseId = data.previous_response_id || null;
-        state.hasEarlier = !!state.earliestResponseId;
+        updateHasEarlier();
         renderMessages();
-        updateLoadEarlier();
       })
       .catch(function(err) {
-        // Show error briefly
-        var btn = E['load-earlier-btn'];
-        btn.textContent = '[ERR: ' + (err.message || 'Failed') + ']';
-        setTimeout(function() {
-          btn.textContent = '[Load earlier messages...]';
-        }, 2000);
+        E['load-earlier-btn'].textContent = '[ERR: ' + (err.message || 'Failed') + ']';
+        setTimeout(function() { E['load-earlier-btn'].textContent = '[Load earlier messages...]'; }, 2000);
       })
       .finally(function() {
         state.loadingEarlier = false;
-        if (!state.lastError) {
-          E['load-earlier-btn'].textContent = '[Load earlier messages...]';
-        }
+        E['load-earlier-btn'].textContent = '[Load earlier messages...]';
       });
   }
 
-  function loadLatest(threadName) {
-    var t = findThread(threadName);
-    if (!t || !t.lastResponseId) {
+  /** Load the latest response for a session (responses mode) */
+  function loadLatestForSession(session) {
+    if (!session.lastResponseId) {
       state.hasEarlier = false;
-      updateLoadEarlier();
+      updateLoadEarlierUI();
       return;
     }
-    fetch(state.serverUrl + '/v1/responses/' + t.lastResponseId, { headers: headers() })
+    fetch(state.serverUrl + '/v1/responses/' + session.lastResponseId, { headers: headers(false) })
       .then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function(data) {
         state.messages = responseToMessages(data);
-        state.latestResponseId = data.id;
+        state.latestResponseId   = data.id;
         state.earliestResponseId = data.previous_response_id || null;
-        state.hasEarlier = !!state.earliestResponseId;
+        updateHasEarlier();
         renderMessages();
-        updateLoadEarlier();
       })
       .catch(function(err) {
-        // Thread may be new or expired — just show empty state
+        console.warn('[hermes] Could not load session history:', err.message);
         state.hasEarlier = false;
-        updateLoadEarlier();
+        updateLoadEarlierUI();
       });
+  }
+
+  // ─── RESPONSE PARSING ────────────────────────────────────────────────────────
+  function parseResponseData(data) {
+    var msg = { role: 'assistant', content: '', tools: [] };
+    if (data.output && Array.isArray(data.output)) {
+      for (var i = 0; i < data.output.length; i++) {
+        var item = data.output[i];
+        if (item.type === 'function_call') {
+          var name = item.name || 'tool';
+          var args = '';
+          try {
+            var p = JSON.parse(item.arguments || '{}');
+            var k = Object.keys(p);
+            if (k.length > 0) args = String(p[k[0]]).substring(0, 60);
+          } catch (e) { args = (item.arguments || '').substring(0, 60); }
+          msg.tools.push({ name: name, icon: '[*]', args: args, isComplete: true, callId: item.call_id || '' });
+        } else if (item.type === 'function_call_output') {
+          for (var j = msg.tools.length - 1; j >= 0; j--) {
+            if (msg.tools[j].callId === item.call_id) {
+              msg.tools[j].output = (item.output || '').substring(0, 200);
+              break;
+            }
+          }
+        } else if (item.type === 'message') {
+          var content = item.content;
+          if (Array.isArray(content)) {
+            for (var k2 = 0; k2 < content.length; k2++) {
+              if (content[k2].type === 'output_text') {
+                msg.content += replaceEmoji(content[k2].text || '');
+              }
+            }
+          } else if (typeof content === 'string') {
+            msg.content += replaceEmoji(content);
+          }
+        }
+      }
+    }
+    return msg;
   }
 
   function responseToMessages(data) {
     var msgs = [];
+    // Extract user turn from input field
     if (data.input) {
-      var txt = typeof data.input === 'string' ? data.input : '';
-      if (Array.isArray(data.input)) {
+      var txt = '';
+      if (typeof data.input === 'string') {
+        txt = data.input;
+      } else if (Array.isArray(data.input)) {
         for (var i = 0; i < data.input.length; i++) {
-          if (data.input[i].content) {
-            txt = data.input[i].content;
-            break;
-          }
+          if (data.input[i] && data.input[i].content) { txt = data.input[i].content; break; }
         }
       }
       if (txt) msgs.push({ role: 'user', content: txt, tools: [] });
     }
+    // Extract assistant turn from output
     if (data.output) {
       var m = parseResponseData(data);
       if (m.content || m.tools.length) msgs.push(m);
@@ -569,58 +583,81 @@
     return msgs;
   }
 
+  // ─── ENFORCE STREAMING TURN LIMIT ────────────────────────────────────────────
+  function enforceMaxTurns() {
+    var session = findSession(state.activeSession);
+    if (!session || session.mode !== 'streaming') return;
+    // Only visual trim — messages array remains full for localStorage
+    // (renderMessages handles this by slicing)
+  }
+
   // === RENDERING ===
   function renderStatus() {
-    var statusText = state.connected ? '[CONNECTED]' : '[OFFLINE]';
-    if (state.lastError && !state.connected) {
-      statusText = '[OFFLINE: ' + state.lastError.substring(0, 20) + ']';
+    var s  = state.connected ? '[CONNECTED]' : '[OFFLINE]';
+    if (state.lastError && !state.connected) s = '[OFFLINE: ' + state.lastError.substring(0, 20) + ']';
+    E['status'].textContent = s;
+    E['status'].className   = 'status status--' + (state.connected ? 'online' : 'offline');
+  }
+
+  function renderModeBadge() {
+    var m = state.mode;
+    if (E['mode-badge'])      { E['mode-badge'].textContent = m === 'streaming' ? '[STREAM]' : '[RESP]'; }
+    if (E['chat-mode-badge']) { E['chat-mode-badge'].textContent = m === 'streaming' ? '[S]' : '[R]'; }
+    if (E['mode-hint']) {
+      E['mode-hint'].textContent = m === 'streaming'
+        ? 'SSE stream. Messages stored locally (last ' + state.maxTurns + ' turns shown).'
+        : 'Blocking. History paged from server. Minimal local storage.';
     }
-    E['status'].textContent = statusText;
-    E['status'].className = 'status status--' + (state.connected ? 'online' : 'offline');
   }
 
   function showView(name) {
-    E['threads-view'].style.display = name === 'threads' ? '' : 'none';
-    E['chat-view'].style.display = name === 'chat' ? '' : 'none';
-    if (name === 'threads') renderThreadsList();
+    E['sessions-view'].style.display = name === 'sessions' ? '' : 'none';
+    E['chat-view'].style.display     = name === 'chat'     ? '' : 'none';
+    if (name === 'sessions') renderSessionsList();
   }
 
-  function renderThreadsList() {
-    E['threads-list'].innerHTML = '';
-    if (state.threads.length === 0) {
-      E['threads-empty'].style.display = '';
+  function renderSessionsList() {
+    E['sessions-list'].innerHTML = '';
+    if (state.sessions.length === 0) {
+      E['sessions-empty'].style.display = '';
       return;
     }
-    E['threads-empty'].style.display = 'none';
+    E['sessions-empty'].style.display = 'none';
     var frag = document.createDocumentFragment();
-    for (var i = 0; i < state.threads.length; i++) {
-      var t = state.threads[i];
-      var btn = document.createElement('button');
-      btn.className = 'thread-item' + (t.name === state.activeThread ? ' thread-item--active' : '');
+    for (var i = 0; i < state.sessions.length; i++) {
+      (function(s) {
+        var btn = document.createElement('button');
+        btn.className = 'thread-item' + (s.id === state.activeSession ? ' thread-item--active' : '');
 
-      var nm = document.createElement('span');
-      nm.className = 'thread-name';
-      nm.textContent = t.name;
-      btn.appendChild(nm);
+        var nm = document.createElement('span');
+        nm.className   = 'thread-name';
+        nm.textContent = s.id;
+        btn.appendChild(nm);
 
-      if (t.preview) {
-        var pv = document.createElement('span');
-        pv.className = 'thread-preview';
-        pv.textContent = t.preview;
-        btn.appendChild(pv);
-      }
-      if (t.time) {
-        var tm = document.createElement('span');
-        tm.className = 'thread-time';
-        tm.textContent = formatTime(t.time);
-        btn.appendChild(tm);
-      }
-      btn.addEventListener('click', (function(n) {
-        return function() { openThread(n); };
-      })(t.name));
-      frag.appendChild(btn);
+        // Mode pill
+        var mp = document.createElement('span');
+        mp.className   = 'session-mode-pill';
+        mp.textContent = s.mode === 'streaming' ? '[S]' : '[R]';
+        btn.appendChild(mp);
+
+        if (s.preview) {
+          var pv = document.createElement('span');
+          pv.className   = 'thread-preview';
+          pv.textContent = s.preview;
+          btn.appendChild(pv);
+        }
+        if (s.time) {
+          var tm = document.createElement('span');
+          tm.className   = 'thread-time';
+          tm.textContent = formatTime(s.time);
+          btn.appendChild(tm);
+        }
+
+        btn.addEventListener('click', function() { openSession(s.id); });
+        frag.appendChild(btn);
+      })(state.sessions[i]);
     }
-    E['threads-list'].appendChild(frag);
+    E['sessions-list'].appendChild(frag);
   }
 
   function renderMessages() {
@@ -632,9 +669,22 @@
       E['messages'].appendChild(emp);
       return;
     }
+
+    // Streaming mode: only render the last maxTurns * 2 messages for perf
+    var msgs = state.messages;
+    var session = findSession(state.activeSession);
+    if (session && session.mode === 'streaming' && msgs.length > state.maxTurns * 2) {
+      // Show a "... N older messages ..." note at top
+      msgs = msgs.slice(-(state.maxTurns * 2));
+      var note = document.createElement('div');
+      note.className   = 'load-earlier-note';
+      note.textContent = '[... older messages not shown — scroll stored locally ...]';
+      E['messages'].appendChild(note);
+    }
+
     var frag = document.createDocumentFragment();
-    for (var i = 0; i < state.messages.length; i++) {
-      frag.appendChild(buildMessageEl(state.messages[i]));
+    for (var i = 0; i < msgs.length; i++) {
+      frag.appendChild(buildMessageEl(msgs[i]));
     }
     E['messages'].appendChild(frag);
     scrollToBottom();
@@ -645,24 +695,24 @@
     el.className = 'message message--' + msg.role;
 
     var role = document.createElement('span');
-    role.className = 'message-role';
+    role.className   = 'message-role';
     role.textContent = msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Hermes' : 'Error';
     el.appendChild(role);
 
+    // Tool badges
     if (msg.tools && msg.tools.length > 0) {
+      var tc = document.createElement('div');
+      tc.className = 'tools-container';
       for (var i = 0; i < msg.tools.length; i++) {
-        var ti = document.createElement('span');
-        ti.className = 'tool-indicator';
-        ti.textContent = msg.tools[i].icon + ' ' + msg.tools[i].name + (msg.tools[i].args ? ': ' + msg.tools[i].args : '');
-        el.appendChild(ti);
-        if (msg.tools[i].output) {
-          var to = document.createElement('span');
-          to.className = 'tool-output';
-          to.textContent = msg.tools[i].output;
-          el.appendChild(to);
-        }
+        var b = document.createElement('span');
+        b.className   = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
+        b.textContent = (msg.tools[i].icon || '[*]') + ' ' + msg.tools[i].name;
+        tc.appendChild(b);
       }
+      el.appendChild(tc);
+      setTimeout(function() { tc.scrollLeft = tc.scrollWidth; }, 0);
     }
+
     if (msg.content) {
       var c = document.createElement('div');
       c.className = 'message-content';
@@ -673,12 +723,34 @@
   }
 
   function updateLastMessage(msg) {
-    var all = E['messages'].querySelectorAll('.message');
+    var all  = E['messages'].querySelectorAll('.message');
     var last = all[all.length - 1];
-    if (!last) {
-      renderMessages();
-      return;
+    if (!last) { renderMessages(); return; }
+
+    // Live-update tool badges
+    var tc = last.querySelector('.tools-container');
+    if (msg.tools && msg.tools.length > 0) {
+      if (!tc) {
+        tc = document.createElement('div');
+        tc.className = 'tools-container';
+        var roleEl = last.querySelector('.message-role');
+        if (roleEl && roleEl.nextSibling) {
+          last.insertBefore(tc, roleEl.nextSibling);
+        } else {
+          last.appendChild(tc);
+        }
+      }
+      tc.innerHTML = '';
+      for (var i = 0; i < msg.tools.length; i++) {
+        var b = document.createElement('span');
+        b.className   = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
+        b.textContent = (msg.tools[i].icon || '[*]') + ' ' + msg.tools[i].name;
+        tc.appendChild(b);
+      }
+      tc.scrollLeft = tc.scrollWidth;
     }
+
+    // Live-update content with streaming cursor
     var c = last.querySelector('.message-content');
     if (!c) {
       c = document.createElement('div');
@@ -692,9 +764,7 @@
   function removeCursor() {
     var cs = document.querySelectorAll('.streaming-cursor');
     for (var i = 0; i < cs.length; i++) {
-      if (cs[i].parentNode) {
-        cs[i].parentNode.removeChild(cs[i]);
-      }
+      if (cs[i].parentNode) cs[i].parentNode.removeChild(cs[i]);
     }
   }
 
@@ -705,64 +775,92 @@
 
   function updateInputState() {
     E['message-input'].disabled = state.sending;
-    E['send-btn'].disabled = state.sending;
-    E['send-btn'].textContent = state.sending ? '[...]' : '[SEND]';
+    E['send-btn'].disabled      = state.sending;
+    E['send-btn'].textContent   = state.sending ? '[...]' : '[SEND]';
   }
 
-  function updateLoadEarlier() {
+  function updateLoadEarlierUI() {
     E['load-earlier'].style.display = state.hasEarlier ? '' : 'none';
   }
 
-  // === THREAD ACTIONS ===
-  function openThread(name) {
-    upsertThread(name);
-    state.activeThread = name;
-    state.messages = [];
-    state.latestResponseId = null;
+  // === SESSION OPEN ===
+  function openSession(id) {
+    var session = upsertSession(id);
+    state.activeSession      = id;
+    state.messages           = [];
+    state.latestResponseId   = null;
     state.earliestResponseId = null;
-    state.hasEarlier = false;
-    state.lastError = null;
-    E['thread-title'].textContent = name;
+    state.hasEarlier         = false;
+    state.lastError          = null;
+
+    E['session-title'].textContent = id;
+    E['chat-mode-badge'].textContent = session.mode === 'streaming' ? '[S]' : '[R]';
     showView('chat');
-    updateLoadEarlier();
-    loadLatest(name);
+    updateLoadEarlierUI();
+
+    if (session.mode === 'streaming') {
+      // Load from localStorage
+      state.messages = loadMessages(id);
+      renderMessages();
+    } else {
+      // Load from server via Responses API
+      loadLatestForSession(session);
+    }
+
     E['message-input'].focus();
+  }
+
+  // === FORM VALIDATION HELPERS ===
+  function showFormError(el, msg) {
+    if (!el) return;
+    el.textContent    = msg;
+    el.style.display  = msg ? '' : 'none';
   }
 
   // === EVENT BINDING ===
   function bindEvents() {
-    // New thread
-    E['new-thread-btn'].addEventListener('click', function() {
-      E['new-thread-form'].style.display = '';
-      E['new-thread-input'].value = '';
-      E['new-thread-input'].focus();
+    // New session
+    E['new-session-btn'].addEventListener('click', function() {
+      E['new-session-form'].style.display = '';
+      E['new-session-input'].value = '';
+      showFormError(E['new-session-error'], '');
+      E['new-session-input'].focus();
     });
-    E['new-thread-cancel'].addEventListener('click', function() {
-      E['new-thread-form'].style.display = 'none';
+    E['new-session-cancel'].addEventListener('click', function() {
+      E['new-session-form'].style.display = 'none';
     });
-    E['new-thread-create'].addEventListener('click', function() {
-      var name = E['new-thread-input'].value.trim();
-      if (!name) return;
-      E['new-thread-form'].style.display = 'none';
-      openThread(name);
-    });
-    E['new-thread-input'].addEventListener('keydown', function(ev) {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        E['new-thread-create'].click();
-      }
+
+    function tryCreateSession() {
+      var id  = E['new-session-input'].value.trim();
+      var err = validateSessionId(id);
+      if (err) { showFormError(E['new-session-error'], err); return; }
+      showFormError(E['new-session-error'], '');
+      E['new-session-form'].style.display = 'none';
+      upsertSession(id, state.mode); // stamp with current mode
+      saveMeta();
+      openSession(id);
+    }
+
+    E['new-session-create'].addEventListener('click', tryCreateSession);
+    E['new-session-input'].addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter') { ev.preventDefault(); tryCreateSession(); }
     });
 
     // Rejoin
-    E['rejoin-btn'].addEventListener('click', function() {
-      var name = E['rejoin-input'].value.trim();
-      if (name) openThread(name);
-    });
+    function tryRejoin() {
+      var id  = E['rejoin-input'].value.trim();
+      var err = validateSessionId(id);
+      if (err) { showFormError(E['rejoin-error'], err); return; }
+      showFormError(E['rejoin-error'], '');
+      E['rejoin-input'].value = '';
+      // If session doesn't exist locally, create stub with current mode
+      if (!findSession(id)) upsertSession(id, state.mode);
+      saveMeta();
+      openSession(id);
+    }
+    E['rejoin-btn'].addEventListener('click', tryRejoin);
     E['rejoin-input'].addEventListener('keydown', function(ev) {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        E['rejoin-btn'].click();
-      }
+      if (ev.key === 'Enter') { ev.preventDefault(); tryRejoin(); }
     });
 
     // Settings
@@ -770,28 +868,42 @@
       var p = E['settings-panel'];
       p.style.display = p.style.display === 'none' ? '' : 'none';
     });
+
+    // Live mode hint update
+    var modeRadios = document.querySelectorAll('input[name="setting-mode"]');
+    for (var i = 0; i < modeRadios.length; i++) {
+      modeRadios[i].addEventListener('change', function() {
+        var sel = document.querySelector('input[name="setting-mode"]:checked');
+        if (sel) {
+          var m = sel.value;
+          E['mode-hint'].textContent = m === 'streaming'
+            ? 'SSE stream. Messages stored locally. Last ' + (E['setting-max-turns'].value || state.maxTurns) + ' turns shown.'
+            : 'Blocking. History paged from server. Minimal local storage.';
+        }
+      });
+    }
+
     E['settings-save'].addEventListener('click', function() {
+      var sel = document.querySelector('input[name="setting-mode"]:checked');
       state.serverUrl = E['setting-url'].value.trim() || DEFAULT_URL;
-      state.apiKey = E['setting-key'].value || '';
-      state.streaming = E['setting-stream'].checked;
-      save();
+      state.apiKey    = E['setting-key'].value || '';
+      state.mode      = sel ? sel.value : state.mode;
+      state.maxTurns  = parseInt(E['setting-max-turns'].value, 10) || DEFAULT_TURNS;
+      saveMeta();
+      renderModeBadge();
       checkHealth();
       E['settings-panel'].style.display = 'none';
     });
 
     E['test-connection-btn'].addEventListener('click', function() {
-      var url = E['setting-url'].value.trim();
-      if (!url) return;
-      state.serverUrl = url; // Temporarily update to test
+      state.serverUrl = E['setting-url'].value.trim() || state.serverUrl;
       checkHealth(true);
     });
 
     // Back
-    E['back-btn'].addEventListener('click', function() {
-      showView('threads');
-    });
+    E['back-btn'].addEventListener('click', function() { showView('sessions'); });
 
-    // Load earlier
+    // Load earlier (responses mode paging)
     E['load-earlier-btn'].addEventListener('click', loadEarlier);
 
     // Send
@@ -804,25 +916,18 @@
       }
     });
     E['message-input'].addEventListener('keydown', function(ev) {
-      if (ev.key === 'Enter' && !ev.shiftKey) {
-        ev.preventDefault();
-        E['send-btn'].click();
-      }
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); E['send-btn'].click(); }
     });
     E['message-input'].addEventListener('input', autoGrow);
     E['message-input'].addEventListener('focus', function() {
-      // Delayed scroll for Kindle keyboard appearing
-      setTimeout(function() {
-        scrollIntoViewKindle(E['message-input']);
-      }, 150);
+      setTimeout(function() { scrollIntoViewKindle(E['message-input']); }, 150);
     });
 
-    // Global keyboard shortcuts
+    // Escape closes forms
     document.addEventListener('keydown', function(ev) {
-      // Escape closes forms/settings
       if (ev.key === 'Escape') {
-        if (E['new-thread-form'].style.display !== 'none') {
-          E['new-thread-form'].style.display = 'none';
+        if (E['new-session-form'].style.display !== 'none') {
+          E['new-session-form'].style.display = 'none';
         } else if (E['settings-panel'].style.display !== 'none') {
           E['settings-panel'].style.display = 'none';
         }
@@ -836,36 +941,33 @@
     el.style.height = Math.min(el.scrollHeight, 150) + 'px';
   }
 
-  // === ERROR HANDLING ===
-  function setupErrorHandling() {
-    // Global error handler
-    window.onerror = function(message, source, lineno, colno, error) {
-      console.error('[Hermes Typewriter Error]', message, source, lineno);
-      // Don't show alert on Kindle — just log
-      return false;
-    };
-
-    // Unhandled promise rejection
-    window.addEventListener('unhandledrejection', function(event) {
-      console.error('[Hermes Typewriter Promise Error]', event.reason);
-    });
-  }
-
   // === INIT ===
   function init() {
-    setupErrorHandling();
+    window.onerror = function(msg, src, ln) {
+      console.error('[hermes]', msg, src, ln);
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('[hermes] Promise error:', e.reason);
+    });
+
     cacheDom();
-    load();
+    loadMeta();
 
-    // Apply saved settings to UI
-    E['setting-url'].value = state.serverUrl;
-    E['setting-key'].value = state.apiKey;
-    E['setting-stream'].checked = state.streaming;
+    // Populate settings UI
+    E['setting-url'].value       = state.serverUrl;
+    E['setting-key'].value       = state.apiKey;
+    E['setting-max-turns'].value = state.maxTurns;
 
+    var modeStreamEl = E['setting-mode-streaming'];
+    var modeRespEl   = E['setting-mode-responses'];
+    if (state.mode === 'streaming') { if (modeStreamEl) modeStreamEl.checked = true; }
+    else                            { if (modeRespEl)   modeRespEl.checked   = true; }
+
+    renderModeBadge();
     bindEvents();
-    renderThreadsList();
+    renderSessionsList();
     checkHealth();
-    // Re-check health every 30s
     setInterval(checkHealth, 30000);
   }
 

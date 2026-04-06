@@ -71,16 +71,44 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Connection", "close")
             self.end_headers()
 
-            # Stream response body in chunks
-            while True:
-                chunk = res.read(4096)
-                if not chunk:
-                    break
-                try:
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError):
-                    break
+            content_type = res.getheader('Content-Type', '')
+            is_sse = 'text/event-stream' in content_type
+
+            if is_sse:
+                # SSE: read line-by-line, flush after every complete event (\n\n)
+                # This prevents all tokens from batching into one browser chunk.
+                buf = b''
+                while True:
+                    byte = res.read(1)
+                    if not byte:
+                        break
+                    buf += byte
+                    # Flush on SSE event boundary (double newline)
+                    if buf.endswith(b'\n\n'):
+                        try:
+                            self.wfile.write(buf)
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
+                        buf = b''
+                # Flush any remainder
+                if buf:
+                    try:
+                        self.wfile.write(buf)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+            else:
+                # Non-SSE: efficient 4096-byte chunks
+                while True:
+                    chunk = res.read(4096)
+                    if not chunk:
+                        break
+                    try:
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        break
 
             conn.close()
 
