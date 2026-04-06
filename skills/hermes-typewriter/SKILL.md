@@ -14,11 +14,22 @@ Use this skill to deploy the typewriter frontend and ensure the hermes-agent bac
 ## Prerequisites
 
 - `cloudflared` must be installed (or the skill will attempt to auto-download via `./serve.sh`)
-- Repository: `hermes-typewriter-app` (where `./serve.sh` and `server.py` reside)
+- Repository: `https://github.com/gwyntel/hermes-typewriter-app`
 
 ## Workflow
 
-Follow these 4 steps to get the typewriter live on a Kindle:
+Follow these phases to get the typewriter live on a Kindle:
+
+### Phase 0: Setup & Update
+
+1. **Clone or Update Repository**:
+   - Check if the `hermes-typewriter-app` directory exists.
+   - If not: `git clone https://github.com/gwyntel/hermes-typewriter-app`
+   - If yes: `cd hermes-typewriter-app && git pull`
+2. **Install Skills**:
+   - Ensure the skill is linked to the agent's home:
+     `ln -sf $(pwd)/skills/hermes-typewriter ~/.hermes/skills/hermes-typewriter`
+     `ln -sf $(pwd)/skills/kindle-web-development ~/.hermes/skills/kindle-web-development`
 
 ### Phase 1: Backend Configuration
 
