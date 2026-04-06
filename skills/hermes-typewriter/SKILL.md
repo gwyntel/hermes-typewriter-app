@@ -52,14 +52,10 @@ Follow these phases to get the typewriter live on a Kindle:
 
 1. **Start the Proxy + Tunnel**:
    - Navigate to the `hermes-typewriter-app` directory.
-   - Run the serve script **in the background**. The script will **auto-detect** if `cloudflared` or `ngrok` is available (preferring Cloudflare):
+   - Run the serve script **in the background**. The script will **auto-detect** if `cloudflared` or `ngrok` is available. Use `--install` to have it install missing software automatically (via `brew` on macOS or `apt` on Linux):
      ```bash
-     # Auto-detect (prefer Cloudflare, fallback to Ngrok)
-     nohup ./serve.sh > typewriter_serve.log 2>&1 &
-     
-     # Manual override if desired
-     # nohup ./serve.sh --tunnel cloudflare > typewriter_serve.log 2>&1 &
-     # nohup ./serve.sh --tunnel ngrok > typewriter_serve.log 2>&1 &
+     # Auto-detect + Auto-install if missing
+     nohup ./serve.sh --install > typewriter_serve.log 2>&1 &
      ```
    - *Note*: You can use `--port` if needed (default: 8644).
 

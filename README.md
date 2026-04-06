@@ -37,15 +37,11 @@ API_SERVER_KEY=your-secret-key
 ```
 
 ### 3. Start the Application
-Run the serve script to start the local server and establish a tunnel. By default, it will **auto-detect** if `cloudflared` or `ngrok` is available (preferring Cloudflare):
+Run the serve script to start the local server and establish a tunnel. Use the `--install` flag to have the script automatically install any missing dependencies (`cloudflared` or `ngrok`) via your system's package manager (`brew` on macOS, `apt` on Linux).
 
 ```bash
-# Auto-detect (prefer Cloudflare, fallback to Ngrok)
-./serve.sh --port 8644
-
-# Manual override if desired
-./serve.sh --tunnel cloudflare --port 8644
-./serve.sh --tunnel ngrok --port 8644
+# Auto-detect + Auto-install if missing
+./serve.sh --install --port 8644
 ```
 
 The script will provide a `trycloudflare.com` or `ngrok.app` URL. Open this URL in your Kindle's browser.

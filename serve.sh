@@ -6,6 +6,7 @@ set -euo pipefail
 
 PORT="8644"
 TUNNEL_TYPE="auto" # Default: Detect available tunnel
+INSTALL_MODE=false # Optional: Install if missing
 
 # --- Argument Parsing ---
 while [ $# -gt 0 ]; do
@@ -17,6 +18,10 @@ while [ $# -gt 0 ]; do
     --tunnel)
       TUNNEL_TYPE="$2"
       shift 2
+      ;;
+    --install)
+      INSTALL_MODE=true
+      shift
       ;;
     -*)
       echo "Unknown option: $1"
@@ -42,6 +47,50 @@ echo ""
 HAS_TUNNEL=false
 TUNNEL_BIN=""
 
+# Helper: Install functions
+install_cloudflare() {
+  echo "[*] Installing cloudflared..."
+  OS="$(uname -s)"
+  ARCH="$(uname -m)"
+  
+  if [ "$OS" = "Darwin" ] && command -v brew > /dev/null 2>&1; then
+    brew install cloudflare/cloudflare/cloudflared
+  elif [ "$OS" = "Linux" ]; then
+    # Try package manager, fallback to binary
+    if command -v apt-get > /dev/null 2>&1; then
+      curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+      echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bullseye main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+      sudo apt-get update && sudo apt-get install cloudflared
+    else
+      if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
+      URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH"
+      curl -sL "$URL" -o cloudflared && chmod +x cloudflared
+      echo "[!] Installed locally in current directory. Move to PATH if desired."
+    fi
+  else
+    # Darwin Binary Fallback (Old approach or no brew)
+    if [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
+    URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$CF_ARCH.tgz"
+    curl -sL "$URL" -o cf.tgz && tar -xzf cf.tgz && rm cf.tgz
+    chmod +x cloudflared && xattr -d com.apple.quarantine cloudflared 2>/dev/null || true
+  fi
+}
+
+install_ngrok() {
+  echo "[*] Installing ngrok..."
+  OS="$(uname -s)"
+  if [ "$OS" = "Darwin" ] && command -v brew > /dev/null 2>&1; then
+    brew install ngrok/ngrok/ngrok
+  elif command -v apt-get > /dev/null 2>&1; then
+    curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && \
+    echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list && \
+    sudo apt-get update && sudo apt-get install ngrok
+  else
+    echo "[!] Manual install required for this system. Visit https://ngrok.com/download"
+    exit 1
+  fi
+}
+
 # --- Tunnel Provider Setup ---
 if [ "$TUNNEL_TYPE" = "auto" ] || [ "$TUNNEL_TYPE" = "cloudflare" ]; then
   # 1. Cloudflare Detection
@@ -53,39 +102,33 @@ if [ "$TUNNEL_TYPE" = "auto" ] || [ "$TUNNEL_TYPE" = "cloudflare" ]; then
     TUNNEL_BIN="cloudflared"
     TUNNEL_TYPE="cloudflare"
     HAS_TUNNEL=true
-  elif [ "$TUNNEL_TYPE" = "cloudflare" ]; then
-    echo "[*] cloudflared not found. Attempting auto-install..."
-    OS="$(uname -s)"
-    ARCH="$(uname -m)"
-    if [ "$OS" = "Darwin" ]; then
-    if [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
-    URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$CF_ARCH.tgz"
-      curl -sL "$URL" -o cf.tgz && tar -xzf cf.tgz && rm cf.tgz
-      chmod +x cloudflared && xattr -d com.apple.quarantine cloudflared 2>/dev/null || true
-      TUNNEL_BIN="./cloudflared"
-      HAS_TUNNEL=true
-    elif [ "$OS" = "Linux" ]; then
-    if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then CF_ARCH="arm64"; else CF_ARCH="amd64"; fi
-    URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$CF_ARCH"
-      curl -sL "$URL" -o cloudflared && chmod +x cloudflared
-      TUNNEL_BIN="./cloudflared"
-      HAS_TUNNEL=true
-    fi
+  elif [ "$INSTALL_MODE" = true ] && [ "$TUNNEL_TYPE" != "ngrok" ]; then
+    install_cloudflare
+    if [ -f "./cloudflared" ]; then TUNNEL_BIN="./cloudflared"; else TUNNEL_BIN="cloudflared"; fi
+    TUNNEL_TYPE="cloudflare"
+    HAS_TUNNEL=true
   fi
 fi
 
-# 2. Ngrok Fallback (if cloudflare not found or auto skipped)
+# 2. Ngrok Fallback/Direct
 if [ "$HAS_TUNNEL" = false ]; then
   if [ "$TUNNEL_TYPE" = "auto" ] || [ "$TUNNEL_TYPE" = "ngrok" ]; then
     if command -v ngrok > /dev/null 2>&1; then
       TUNNEL_BIN="ngrok"
       TUNNEL_TYPE="ngrok"
       HAS_TUNNEL=true
-    elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
-      echo "[!] ngrok not found in PATH. Please install it: https://ngrok.com/download"
-      HAS_TUNNEL=false
+    elif [ "$INSTALL_MODE" = true ] && [ "$TUNNEL_TYPE" != "cloudflare" ]; then
+      install_ngrok
+      TUNNEL_BIN="ngrok"
+      TUNNEL_TYPE="ngrok"
+      HAS_TUNNEL=true
     fi
   fi
+fi
+
+if [ "$HAS_TUNNEL" = false ] && [ "$TUNNEL_TYPE" != "auto" ]; then
+  echo "[!] Error: Requested tunnel '$TUNNEL_TYPE' not found. Run with --install to attempt installation."
+  exit 1
 fi
 
 # --- Free the port ---
