@@ -858,9 +858,20 @@
     if (E['setting-mode-responses'].checked) m = 'responses';
     state.mode = m;
 
+    // PROPAGATE TO ACTIVE SESSION:
+    // If we're already in a session, the user likely wants to change ITS mode too.
+    if (state.activeSession) {
+      var s = findSession(state.activeSession);
+      if (s) {
+        s.mode = m;
+        // If switching to responses, we don't need local messages.
+        // If switching to streaming, we'll keep what's on screen but new turns will be SSE.
+      }
+    }
+
     applyDarkMode();
     saveMeta();
-    toggleSettings();
+    toggleSettings(); // Close panel
     renderModeBadge();
     checkHealth(false);
     renderSessionsList();
@@ -946,7 +957,17 @@
       if (ev.key === 'Enter') { ev.preventDefault(); tryRejoin(); }
     });
 
-    // Settings
+    // Mode switch hints (Live update while toggling radios)
+    var updateHint = function () {
+      var m = E['setting-mode-responses'].checked ? 'responses' : 'streaming';
+      E['mode-hint'].textContent = m === 'streaming'
+        ? 'SSE stream. Local storage (last ' + (E['setting-max-turns'].value || state.maxTurns) + ' turns shown).'
+        : 'Blocking. History paged from server. Minimal local storage.';
+    };
+    E['setting-mode-streaming'].addEventListener('change', updateHint);
+    E['setting-mode-responses'].addEventListener('change', updateHint);
+    E['setting-max-turns'].addEventListener('input', updateHint);
+
     E['settings-toggle'].addEventListener('click', toggleSettings);
     E['settings-save'].addEventListener('click', saveSettings);
 
