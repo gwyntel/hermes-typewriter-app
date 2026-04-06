@@ -119,41 +119,47 @@ if [ "$HAS_TUNNEL" = true ]; then
   TUNNEL_URL=""
   echo -n "[*] Waiting for tunnel to establish..."
   for i in {1..60}; do
-    # --- Try Programmatic API Check first (Faster/Reliable) ---
+    # --- 1. Try Programmatic API Check (Cloudflare 20241-20245 / Ngrok 4040) ---
     if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
-      # Cloudflare Local Metrics API (new semi-deterministic range: 20241-20245)
       if command -v curl &> /dev/null; then
         for port in {20241..20245}; do
           JSON=$(curl -s --max-time 1 http://localhost:$port/quicktunnel || true)
           if [[ "$JSON" == *"hostname"* ]]; then
-            # Cloudflare returns {"hostname":"xyz.trycloudflare.com"}
             HOST=$(echo "$JSON" | grep -o '"hostname":"[^"]*"' | cut -d'"' -f4)
-            if [[ -n "$HOST" ]]; then
-              TUNNEL_URL="https://$HOST"
-              break
-            fi
+            [[ -n "$HOST" ]] && TUNNEL_URL="https://$HOST" && break
           fi
         done
       fi
     elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
-      # Ngrok Local API (localhost:4040/api/tunnels)
       if command -v curl &> /dev/null; then
         TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' | head -n 1 || true)
         [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[a-z0-9-]*\.ngrok\.io' | head -n 1 || true)
       fi
     fi
 
-    # --- Fallback to log scraping if API checks empty ---
-    if [[ -z "$TUNNEL_URL" ]]; then
-      if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
-         TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
-      else
-         TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
-         [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
-      fi
+    [[ -n "$TUNNEL_URL" ]] && break
+
+    # --- 2. Parallel Fallback: Scrape Logs if API not ready yet ---
+    if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+      TUNNEL_URL=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' "$TUNNEL_LOG" | head -n 1 || true)
+    else
+      TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok-free\.app' "$TUNNEL_LOG" | head -n 1 || true)
+      [[ -z "$TUNNEL_URL" ]] && TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' "$TUNNEL_LOG" | head -n 1 || true)
     fi
+
+    [[ -n "$TUNNEL_URL" ]] && break
     
-    if [[ -n "$TUNNEL_URL" ]]; then break; fi
+    # Check if process is still alive while waiting
+    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+      echo " ❌"
+      echo "[!] Tunnel process exited unexpectedly. Log:"
+      cat "$TUNNEL_LOG"
+      exit 1
+    fi
+
+    echo -n "."
+    sleep 1
+  done
     if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
       echo " ❌"
       echo "[!] Tunnel exited unexpectedly. Log:"
