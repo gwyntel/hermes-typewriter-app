@@ -1,0 +1,63 @@
+# Hermes Typewriter
+
+A minimalist, e-ink optimized chat interface for [hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+This application is specifically designed to run on **Amazon Kindle** e-ink browsers, adhering to strict constraints for older WebKit and newer Chromium-based firmware.
+
+## Key Features
+
+- **Split-Mode Architecture**:
+    - **Streaming Mode**: Fast, token-by-token feedback using Server-Sent Events (SSE). History is stored in `localStorage` but capped to prevent memory bloat.
+    - **Responses Mode**: Minimal local storage footprint. Consistently pages long conversation history from the server using the Responses API (previous response ID chaining).
+- **E-Ink Optimized UI**:
+    - High-contrast, monochrome design (Paperwhite-friendly).
+    - Animation-free interactions to prevent ghosting.
+    - Large touch targets (minimum 48px).
+    - System monospace typography for maximum compatibility.
+- **Session Continuity**: Named sessions that survive browser restarts and sync with the backend's `state.db`.
+- **SSE Internal Proxy**: A custom Python proxy (`server.py`) that ensures SSE events are flushed line-by-line for smooth token rendering on low-power devices.
+
+## Quick Start
+
+### 1. Requirements
+- `hermes-agent` installed and running.
+- `python3` for the local proxy server.
+- `cloudflared` (optional, for remote Kindle access).
+
+### 2. Configure Backend
+Ensure your `~/.hermes/.env` has the API server enabled:
+```bash
+API_SERVER_ENABLED=true
+API_SERVER_KEY=your-secret-key
+```
+
+### 3. Start the Application
+Run the serve script to start the local server and establish a Cloudflare tunnel:
+```bash
+./serve.sh
+```
+
+The script will provide a `trycloudflare.com` URL. Open this URL in your Kindle's "Experimental Browser" or "Web Browser".
+
+## Skills for Hermes Agent
+
+This repository includes two specialized skills for `hermes-agent`:
+
+1.  **`hermes-typewriter`**: Automates the deployment, backend configuration, and tunnel management for this application.
+2.  **`kindle-web-development`**: A comprehensive reference for anyone wanting to modify the frontend. It documents every known constraint of the Kindle browser (ES2019 ceiling, flexbox bugs, memory limits, etc.).
+
+### Installation
+To use these skills with your agent, link them to the hermes skill directory:
+```bash
+ln -s $(pwd)/skills/hermes-typewriter ~/.hermes/skills/hermes-typewriter
+ln -s $(pwd)/skills/kindle-web-development ~/.hermes/skills/kindle-web-development
+```
+
+## Development
+
+If you wish to modify the code:
+- **`app.js`**: Main logic (streaming parser, state management).
+- **`style.css`**: Design tokens and e-ink layout (no `gap`, no animations).
+- **`server.py`**: Python HTTP proxy for auth and SSE flushing.
+
+Refer to the `kindle-web-development` skill before making any changes to ensure they remain compatible with e-ink hardware.

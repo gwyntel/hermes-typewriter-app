@@ -5,7 +5,6 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [typewriter, kindle, e-ink, deployment, tunnel]
-    related_skills: [dogfood]
 ---
 
 # Hermes Typewriter: Remote Kindle Access
@@ -68,7 +67,7 @@ When complete, provide a summary like:
 > [!TIP]
 > **Hermes Typewriter is Live!**
 > 
-> **Access URL**: `https://random-words.trycloudflare.com`
+> **Access URL**: `https://efforts-promised-rapids-jenny.trycloudflare.com`
 > 
 > **Instructions for Kindle**:
 > 1. Open the Experimental Browser.
@@ -76,3 +75,15 @@ When complete, provide a summary like:
 > 3. Verify the `[CONNECTED]` status.
 > 
 > **Inference Status**: Online via Gateway (8642)
+
+---
+
+## Companion Skills
+
+If you or the user would like to modify the frontend itself — adding new UI elements, adjusting the layout, changing the CSS design system, or extending JavaScript functionality — load the **`kindle-web-development`** skill first.
+
+That skill contains an exhaustive, battle-tested reference for every browser constraint you will encounter: the ES2019 JavaScript ceiling, the flexbox `gap` bug, the animation ghosting problem, the 64 MB localStorage hard limit, touch target sizing, and much more. Any changes to `index.html`, `style.css`, or `app.js` **must** comply with those constraints or the Kindle browser will silently fail or crash.
+
+```
+skill: kindle-web-development
+```
