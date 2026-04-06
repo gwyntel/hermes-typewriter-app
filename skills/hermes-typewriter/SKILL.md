@@ -45,19 +45,21 @@ Follow these phases to get the typewriter live on a Kindle:
 
 3. **Ensure Gateway is Running**:
    - Check if the gateway is running (`lsof -ti :8642`).
-   - If not, start it: `hermes gateway &`
+   - If not, start it in the background: `nohup hermes gateway > ~/.hermes/gateway.log 2>&1 &`
    - Re-verify with `curl http://localhost:8642/health`.
 
-### Phase 2: Serves the Frontend
+### Phase 2: Serve the Frontend
 
 1. **Start the Proxy + Tunnel**:
    - Navigate to the `hermes-typewriter-app` directory.
-   - Run the serve script and capture output to find the tunnel URL:
+   - Run the serve script **in the background** so the skill can capture the URL and continue:
      ```bash
-     ./serve.sh 8643
+     nohup ./serve.sh 8643 > typewriter_serve.log 2>&1 &
      ```
+   - *Note*: Blocking execution is fine initially to see output, but ensuring it persists is key.
+
 2. **Monitor the Log**:
-   - The script will output a `.trycloudflare.com` URL. Listen for this URL.
+   - Check `typewriter_serve.log` (or wait for stdout) to find the `.trycloudflare.com` URL.
 
 ### Phase 3: Reporting & Connection
 
