@@ -5,7 +5,7 @@
 set -euo pipefail
 
 PORT="8644"
-TUNNEL_TYPE="cloudflare" # default
+TUNNEL_TYPE="auto" # Default: Detect available tunnel
 
 # --- Argument Parsing ---
 while [ $# -gt 0 ]; do
@@ -43,14 +43,17 @@ HAS_TUNNEL=false
 TUNNEL_BIN=""
 
 # --- Tunnel Provider Setup ---
-if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+if [ "$TUNNEL_TYPE" = "auto" ] || [ "$TUNNEL_TYPE" = "cloudflare" ]; then
+  # 1. Cloudflare Detection
   if [ -f "./cloudflared" ]; then
     TUNNEL_BIN="./cloudflared"
+    TUNNEL_TYPE="cloudflare"
     HAS_TUNNEL=true
-  elif command -v cloudflared &> /dev/null; then
+  elif command -v cloudflared > /dev/null 2>&1; then
     TUNNEL_BIN="cloudflared"
+    TUNNEL_TYPE="cloudflare"
     HAS_TUNNEL=true
-  else
+  elif [ "$TUNNEL_TYPE" = "cloudflare" ]; then
     echo "[*] cloudflared not found. Attempting auto-install..."
     OS="$(uname -s)"
     ARCH="$(uname -m)"
@@ -69,13 +72,19 @@ if [ "$TUNNEL_TYPE" = "cloudflare" ]; then
       HAS_TUNNEL=true
     fi
   fi
-elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
-  if command -v ngrok &> /dev/null; then
-    TUNNEL_BIN="ngrok"
-    HAS_TUNNEL=true
-  else
-    echo "[!] ngrok not found in PATH. Please install it: https://ngrok.com/download"
-    HAS_TUNNEL=false
+fi
+
+# 2. Ngrok Fallback (if cloudflare not found or auto skipped)
+if [ "$HAS_TUNNEL" = false ]; then
+  if [ "$TUNNEL_TYPE" = "auto" ] || [ "$TUNNEL_TYPE" = "ngrok" ]; then
+    if command -v ngrok > /dev/null 2>&1; then
+      TUNNEL_BIN="ngrok"
+      TUNNEL_TYPE="ngrok"
+      HAS_TUNNEL=true
+    elif [ "$TUNNEL_TYPE" = "ngrok" ]; then
+      echo "[!] ngrok not found in PATH. Please install it: https://ngrok.com/download"
+      HAS_TUNNEL=false
+    fi
   fi
 fi
 

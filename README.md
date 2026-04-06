@@ -37,13 +37,14 @@ API_SERVER_KEY=your-secret-key
 ```
 
 ### 3. Start the Application
-Run the serve script to start the local server and establish a tunnel. It defaults to **Cloudflare**, but you can specify **Ngrok**:
+Run the serve script to start the local server and establish a tunnel. By default, it will **auto-detect** if `cloudflared` or `ngrok` is available (preferring Cloudflare):
 
 ```bash
-# Default (Cloudflare)
+# Auto-detect (prefer Cloudflare, fallback to Ngrok)
 ./serve.sh --port 8644
 
-# Using Ngrok (requires ngrok in PATH)
+# Manual override if desired
+./serve.sh --tunnel cloudflare --port 8644
 ./serve.sh --tunnel ngrok --port 8644
 ```
 
