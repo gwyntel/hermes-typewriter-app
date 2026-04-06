@@ -49,6 +49,22 @@ Run the serve script to start the local server and establish a tunnel. It defaul
 
 The script will provide a `trycloudflare.com` or `ngrok.app` URL. Open this URL in your Kindle's browser.
 
+## 🎨 Agent-Led Customization
+
+Since this project is designed for agents to maintain and evolve, you can use the following prompt to have an agent (like Antigravity or a Hermes Agent) customize the application's look and feel for you.
+
+### 🪄 Customization Prompt
+Copy and paste this to your AI coding assistant:
+
+> "I want to customize the Hermes Typewriter interface. Please act as a senior frontend engineer and product designer to help me define a new aesthetic direction. 
+> 
+> **Instructions:**
+> 1. **Analyze Constraints**: Read `skills/kindle-web-development/SKILL.md` to understand the strict e-ink browser limitations (no animations, no flexbox `gap`, ES2019 limit, high-contrast only, no transparency).
+> 2. **Propose Directions**: Suggest 3 distinct visual directions (e.g., **Brutally Minimal**, **Retro-Technical**, **Elegant Editorial**) that will render perfectly on a Kindle.
+> 3. **Implement Design**: Once I choose a direction, update `style.css` (UI design tokens), `app.js` (UI labels/logic), and `config.js` (runtime settings).
+> 4. **Refine Personality**: Update the `instructions` field in `config.js` to ensure the agent's tone matches the new visual persona.
+> 5. **Final Polish**: Ensure all touch targets are at least 48px, typography is highly legible, and the layout remains 'solid' (avoiding ghosting artifacts)."
+
 ## Skills for Hermes Agent
 
 This repository includes two specialized skills for `hermes-agent`:

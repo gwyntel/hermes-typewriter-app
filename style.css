@@ -21,48 +21,77 @@
 
 /* --- TOKENS --- */
 :root {
-  --paper:       #F9F7F1;
-  --paper-dim:   #EFEFEB;
-  --ink:         #2D2D2D;
-  --ink-mid:     #777777;
-  --ink-faint:   #AAAAAA;
-  --border:      #2D2D2D;
+  /* High-legibility monochrome palette for 16-level grayscale */
+  --paper:       #FFFFFF; /* Pure white for maximum contrast */
+  --paper-dim:   #F0F0F0;
+  --ink:         #000000; /* Pure black */
+  --ink-mid:     #444444; /* Darker than before for readability */
+  --ink-faint:   #777777; /* Minimum depth for legible labels */
+  --border:      #000000;
   --border-lt:   #CCCCCC;
   --white:       #FFFFFF;
   --black:       #000000;
-  --font:        "Courier New", Courier, monospace;
-  --fs:          16px;
-  --fs-sm:       14px;
-  --fs-lg:       18px;
-  --fs-xl:       22px;
-  --lh:          1.65;
-  --max-w:       640px;
-  --sp-2:        4px;
-  --sp-4:        8px;
-  --sp-8:        16px;
-  --sp-12:       24px;
-  --sp-16:       32px;
+
+  /* Typewriter Font - Thickening the stack for e-ink legibility */
+  --font:        "Courier New", Courier, "Lucida Console", Monaco, monospace;
+
+  /* Responsive Base Font Size
+     Kindles report physical pixels. 
+     Paperwhite 3 (300dpi) ~1072px wide. 16px is too small.
+     We want ~20px on a 1072px device, scaling up.
+  */
+  --fs-base:     2.2vw; /* Approx 24px on 1072px screen */
+  --fs:          1rem;
+  --fs-xs:       0.75rem;
+  --fs-sm:       0.875rem;
+  --fs-lg:       1.25rem;
+  --fs-xl:       1.5rem;
+  --fs-xxl:      2rem;
+
+  --lh:          1.5; /* Slightly tighter for typewriter feel but legible */
+  --lh-tight:    1.2;
+
+  /* Typographic Rhythm */
+  --max-w:       75ch; /* Optimal line length for reading */
+  --sp-1:        4px;
+  --sp-2:        8px;
+  --sp-3:        12px;
+  --sp-4:        16px;
+  --sp-6:        24px;
+  --sp-8:        32px;
+  --sp-12:       48px;
 }
 
+/* Dark Mode - Inverted for Night Reading */
 @media (prefers-color-scheme: dark) {
   :root {
     --paper:       #000000;
-    --paper-dim:   #222222;
+    --paper-dim:   #1A1A1A;
     --ink:         #FFFFFF;
-    --ink-mid:     #CCCCCC;
-    --ink-faint:   #999999;
+    --ink-mid:     #BBBBBB;
+    --ink-faint:   #888888;
     --border:      #FFFFFF;
-    --border-lt:   #555555;
-    --white:       #222222;
+    --border-lt:   #444444;
+    --white:       #1A1A1A;
     --black:       #FFFFFF;
+  }
+}
+
+/* Kindle Pixel Density Correction (High Resolution)
+   Paperwhite 11+ is 1200px+ width.
+*/
+@media (min-width: 1100px) {
+  :root {
+    --fs-base: 2vw; /* Still large enough on wider screens */
   }
 }
 
 /* --- BASE --- */
 html {
-  font-size: var(--fs);
+  font-size: var(--fs-base);
   line-height: var(--lh);
-  -webkit-text-size-adjust: 100%;
+  -webkit-text-size-adjust: none; /* Let absolute scaling work */
+  background: var(--paper); /* Avoid white flash */
 }
 
 body {
@@ -71,12 +100,15 @@ body {
   color: var(--ink);
   max-width: var(--max-w);
   margin: 0 auto;
-  padding: var(--sp-8);
+  padding: var(--sp-4);
   min-height: 100vh;
+  /* Kindle E-ink Optimization: ensure text isn't fuzzy */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* --- HEADER --- */
-#header { margin-bottom: var(--sp-8); }
+#header { margin-bottom: var(--sp-6); }
 
 .header-row {
   display: flex;
@@ -91,15 +123,18 @@ body {
 .header-meta > * + * { margin-left: var(--sp-4); }
 
 h1 {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-xxl);
   font-weight: bold;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.25em; /* Explicitly wider for brand feel */
   text-transform: uppercase;
+  margin: 0;
+  line-height: var(--lh-tight);
 }
 
 .status {
-  font-size: var(--fs-sm);
-  letter-spacing: 0.05em;
+  font-size: var(--fs-xs);
+  letter-spacing: 0.1em;
+  font-weight: bold;
 }
 .status--online  { color: var(--ink); }
 .status--offline { color: var(--ink-faint); }
@@ -130,23 +165,26 @@ h1 {
 .btn {
   font-family: var(--font);
   font-size: var(--fs-sm);
-  padding: 12px 16px;
-  border: 2px solid var(--border);
+  font-weight: bold;
+  padding: var(--sp-3) var(--sp-4);
+  border: 3px solid var(--border); /* Slightly thicker for e-ink */
   background: var(--white);
   color: var(--ink);
   cursor: pointer;
-  min-height: 48px;
-  min-width: 48px;
-  letter-spacing: 0.05em;
+  min-height: 52px; /* Increased for Kindles */
+  min-width: 52px;
+  letter-spacing: 0.1em;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   text-decoration: none;
   line-height: 1;
+  text-transform: uppercase;
 }
 .btn:active {
-  background: var(--black);
-  color: var(--white);
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
 }
 .btn:disabled {
   background: var(--paper-dim);
@@ -157,14 +195,17 @@ h1 {
 .btn--primary {
   background: var(--black);
   color: var(--white);
+  border-color: var(--black);
 }
 .btn--primary:active {
   background: var(--white);
   color: var(--black);
+  border-color: var(--black);
 }
 .btn--sm {
-  padding: 8px 12px;
-  min-height: 44px;
+  padding: var(--sp-2) var(--sp-3);
+  min-height: 48px;
+  font-size: var(--fs-xs);
 }
 .btn--block {
   display: block;
@@ -240,19 +281,37 @@ label {
   margin-right: var(--sp-4);
 }
 
+/* --- FLEXBOX SPACING UTILITIES (Kindle Gap Bug) --- */
+.flex-row { display: flex; flex-direction: row; }
+.flex-col { display: flex; flex-direction: column; }
+
+.gap-x-1 > * + * { margin-left: var(--sp-1); }
+.gap-x-2 > * + * { margin-left: var(--sp-2); }
+.gap-x-3 > * + * { margin-left: var(--sp-3); }
+.gap-x-4 > * + * { margin-left: var(--sp-4); }
+
+.gap-y-1 > * + * { margin-top: var(--sp-1); }
+.gap-y-2 > * + * { margin-top: var(--sp-2); }
+.gap-y-3 > * + * { margin-top: var(--sp-3); }
+.gap-y-4 > * + * { margin-top: var(--sp-4); }
+
+/* Apply to specific columns if needed */
+.flex-col > * + * { margin-left: 0; }
+
 /* --- SECTION BAR --- */
 .section-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--sp-8);
+  margin-bottom: var(--sp-4);
+  min-height: 52px;
 }
-.section-bar > * + * { margin-left: var(--sp-4); }
+.section-bar > * + * { margin-left: var(--sp-2); }
 
 .section-label {
   font-size: var(--fs-lg);
   font-weight: bold;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
   flex-grow: 1;
   flex-shrink: 1;
@@ -425,12 +484,12 @@ label {
 .message:last-child { border-bottom: none; }
 
 .message-role {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: bold;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--ink-mid);
-  margin-bottom: var(--sp-2);
+  margin-bottom: var(--sp-1);
   display: block;
 }
 
@@ -440,11 +499,17 @@ label {
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  color: var(--ink);
 }
 
 .message--user .message-content {
-  padding-left: var(--sp-8);
-  border-left: 3px solid var(--border-lt);
+  padding-right: var(--sp-2);
+  border-right: 4px solid var(--border-lt); /* Right-aligned accent for user turn */
+  text-align: right;
+}
+
+.message--assistant .message-content {
+  padding-left: var(--sp-1);
 }
 
 .message--error {
@@ -484,20 +549,21 @@ label {
 /* --- CODE --- */
 .code-block {
   display: block;
-  border: 1px solid var(--border);
-  padding: var(--sp-4);
+  border: 4px double var(--border); /* Fancy typewriter double border */
+  padding: var(--sp-2);
   margin: var(--sp-4) 0;
   background: var(--white);
-  font-size: var(--fs-sm);
-  white-space: pre;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  font-size: var(--fs-xs); /* Smaller for code */
+  white-space: pre-wrap; /* AVOID HORIZONTAL SCROLLING ON E-INK */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.3;
 }
 .inline-code {
   background: var(--paper-dim);
-  padding: 2px 4px;
+  padding: 0 4px;
   border: 1px solid var(--border-lt);
-  font-size: var(--fs-sm);
+  font-size: inherit;
 }
 
 /* --- STREAMING CURSOR --- */

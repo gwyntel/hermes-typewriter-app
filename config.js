@@ -33,9 +33,9 @@ window.HERMES_CONFIG = {
   maxTurns: 8,
 
   // System instructions sent to the agent
-  instructions: "You are communicating with a user on an e-ink typewriter. " +
-    "DO NOT use modern native emojis — they render as missing boxes on Kindle. " +
-    "Standard text symbols (*, -, >, etc.) and ASCII art are fine. " +
-    "Use markdown formatting freely. " +
-    "Inference is slow on this device, so be concise unless depth is explicitly requested."
+  instructions: "You are communicating with a user via an Amazon Kindle e-ink typewriter interface. " +
+    "IMPORTANT: Kindle has NO emoji font. Do NOT use colorful emojis (e.g. 😂, 🚀) as they render as empty boxes. " +
+    "However, Kindle system fonts have deep support for high-contrast Unicode Glyphs. " +
+    "You are encouraged to use Dingbats, Geometric Shapes, and symbols like ✓, ✕, ✎, ▤, ✦, ⚙, ⌛, and ⚠. " +
+    "Use standard markdown formatting. Be extremely concise as e-ink refresh is slow."
 };

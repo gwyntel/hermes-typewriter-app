@@ -15,15 +15,24 @@
 
   // === EMOJI → ASCII (Kindle has no emoji font) ===
   var EMOJI_LIST = [
-    ['\uD83D\uDCBB', '[>_]'],  // laptop / terminal
-    ['\uD83D\uDD0D', '[?]'],   // magnifier / search
-    ['\uD83D\uDCC1', '[~]'],   // folder / file read
-    ['\uD83D\uDCDD', '[+]'],   // memo / write
-    ['\uD83E\uDDE0', '[@]'],   // brain / memory
-    ['\u2699', '[*]'],   // gear / settings
-    ['\uD83D\uDD27', '[*]'],   // wrench / tool
-    ['\uD83C\uDF10', '[web]'], // globe / web
-    ['\uD83D\uDCE6', '[pkg]'], // package
+    ['\uD83D\uDCBB', '\u2328'],   // laptop / terminal → ⌨
+    ['\uD83D\uDD0D', '\u2315'],   // magnifier / search → ⌕
+    ['\uD83D\uDCC1', '\u25A4'],   // folder / file read → ▤
+    ['\uD83D\uDCDD', '\u270E'],   // memo / write → ✎
+    ['\uD83E\uDDE0', '\u269B'],   // brain / memory → ⚛
+    ['\u2699', '\u2699'],         // gear / settings → ⚙ (native glyph)
+    ['\uD83D\uDD27', '\u2692'],   // wrench / tool → ⚒
+    ['\uD83C\uDF10', '\u2295'],   // globe / web → ⊕
+    ['\uD83D\uDCE6', '\u229E'],   // package → ⊞
+    ['\u2705', '\u2713'],         // checkmark → ✓
+    ['\u274C', '\u2715'],         // x → ✕
+    ['\u26A0', '\u26A0'],         // warning → ⚠ (native)
+    ['\u2139', '\u24D8'],         // info → ⓘ
+    ['\u2728', '\u2726'],         // sparkles → ✦
+    ['\uD83D\uDCD6', '\u2637'],   // book → ☷
+    ['\uD83D\uDD12', '\u26D3'],   // lock → ⛓
+    ['\u23F3', '\u231B'],         // hourglass → ⌛
+    ['\uD83D\uDD17', '\u29C9'],   // link → ⧉
   ];
 
   // === STATE ===
@@ -593,16 +602,17 @@
 
   // === RENDERING ===
   function renderStatus() {
-    var s = state.connected ? '[CONNECTED]' : '[OFFLINE]';
-    if (state.lastError && !state.connected) s = '[OFFLINE: ' + state.lastError.substring(0, 20) + ']';
+    var icon = state.connected ? '\u25CF' : '\u25CB'; // ● / ○
+    var s = icon + (state.connected ? ' ONLINE' : ' OFFLINE');
+    if (state.lastError && !state.connected) s = '\u25CB OFFLINE: ' + state.lastError.substring(0, 20);
     E['status'].textContent = s;
     E['status'].className = 'status status--' + (state.connected ? 'online' : 'offline');
   }
 
   function renderModeBadge() {
     var m = state.mode;
-    if (E['mode-badge']) { E['mode-badge'].textContent = m === 'streaming' ? '[STREAM]' : '[RESP]'; }
-    if (E['chat-mode-badge']) { E['chat-mode-badge'].textContent = m === 'streaming' ? '[S]' : '[R]'; }
+    if (E['mode-badge']) { E['mode-badge'].textContent = m === 'streaming' ? '\u25CE STREAM' : '\u2630 RESP'; }
+    if (E['chat-mode-badge']) { E['chat-mode-badge'].textContent = m === 'streaming' ? '\u25CE' : '\u2630'; }
     if (E['mode-hint']) {
       E['mode-hint'].textContent = m === 'streaming'
         ? 'SSE stream. Messages stored locally (last ' + state.maxTurns + ' turns shown).'
@@ -637,7 +647,7 @@
         // Mode pill
         var mp = document.createElement('span');
         mp.className = 'session-mode-pill';
-        mp.textContent = s.mode === 'streaming' ? '[S]' : '[R]';
+        mp.textContent = s.mode === 'streaming' ? '\u25CE' : '\u2630';
         btn.appendChild(mp);
 
         if (s.preview) {
@@ -794,7 +804,7 @@
     state.lastError = null;
 
     E['session-title'].textContent = id;
-    E['chat-mode-badge'].textContent = session.mode === 'streaming' ? '[S]' : '[R]';
+    E['chat-mode-badge'].textContent = session.mode === 'streaming' ? '\u25CE' : '\u2630';
     showView('chat');
     updateLoadEarlierUI();
 

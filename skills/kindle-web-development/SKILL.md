@@ -178,7 +178,23 @@ The browser reports actual pixel width, not a scaled viewport. This differs from
 
 Browser uses automatic refresh mode selection. You cannot control refresh programmatically.
 
----
+### Unicode vs. Emoji Support (Critical)
+
+**Kindle browsers do NOT include emoji fonts.**
+- ❌ **Standard Emojis** (e.g., 😂, 🚀, 💡) will render as empty boxes or "huh?" symbols ().
+- ✅ **Unicode Glyphs** (Dingbats, Mathematical Operators, Geometric Shapes) are **robustly supported**.
+- Kindles (especially Post-K3) have deep support for UTF-8 encoded glyphs found in system fonts like **Bookerly**, **Amazon Ember**, and **Georgia**.
+
+**Reliable Glyph Ranges for UI**:
+- **Dingbats (U+2700–27BF)**: `✓` (2713), `✕` (2715), `✎` (270E), `❧` (2767).
+- **Miscellaneous Symbols (U+2600–26FF)**: `☀` (2600), `⚙` (2699), `⚠` (26A0), `⌛` (231B).
+- **Geometric Shapes (U+25A0–25FF)**: `■`, `▲`, `●`.
+- **Enclosed Alphanumerics (U+2460–24FF)**: `①`, `ⓐ`, `ⓘ`.
+
+**Best Practices**:
+1. **Always use UTF-8** encoding (`<meta charset="UTF-8">`).
+2. **Avoid fallback chains** for glyphs; stick to common Unicode blocks that Kindle system fonts cover natively.
+3. **Use glyphs for hierarchy** instead of color or thin borders, as they render with high contrast on e-ink.
 
 ## JavaScript Constraints
 
