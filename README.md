@@ -14,8 +14,9 @@ This application is specifically designed to run on **Amazon Kindle** e-ink brow
     - Animation-free interactions to prevent ghosting.
     - Large touch targets (minimum 48px).
     - System monospace typography for maximum compatibility.
-- **Session Continuity**: Named sessions that survive browser restarts and sync with the backend's `state.db`.
-- **SSE Internal Proxy**: A custom Python proxy (`server.py`) that ensures SSE events are flushed line-by-line for smooth token rendering on low-power devices.
+- **SSE Internal Proxy**: A custom Python proxy (`server.py`) ensures SSE events are flushed line-by-line for smooth token rendering on low-power devices.
+- **API-Driven Tunnel Discovery**: `serve.sh` uses programmatic API checks (Cloudflare Prometheus metrics or Ngrok's `/api/tunnels`) for near-instant tunnel URL reporting.
+- **Session Continuity**: Named sessions (3-64 chars, alphanumeric, `-`, `_`) that sync with the backend's `state.db`.
 
 ## Quick Start
 
