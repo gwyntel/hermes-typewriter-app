@@ -1,14 +1,14 @@
-(function() {
+(function () {
   'use strict';
 
   // === CONFIG ===
   var CFG = window.HERMES_CONFIG || {};
-  var DEFAULT_URL   = CFG.serverUrl   || window.location.origin;
-  var DEFAULT_KEY   = CFG.apiKey      || '';
-  var DEFAULT_MODE  = CFG.mode        || 'streaming';   // 'streaming' | 'responses'
-  var DEFAULT_TURNS = CFG.maxTurns    || 8;
-  var DEFAULT_INST  = CFG.instructions || '';
-  var TIMEOUT_MS    = 180000; // 3 min (inference is slow)
+  var DEFAULT_URL = CFG.serverUrl || window.location.origin;
+  var DEFAULT_KEY = CFG.apiKey || '';
+  var DEFAULT_MODE = CFG.mode || 'streaming';   // 'streaming' | 'responses'
+  var DEFAULT_TURNS = CFG.maxTurns || 8;
+  var DEFAULT_INST = CFG.instructions || '';
+  var TIMEOUT_MS = 900000; // 15 min (inference is slow)
 
   // Session ID rules: letters, numbers, hyphens, underscores, 3-64 chars
   var SESSION_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
@@ -20,7 +20,7 @@
     ['\uD83D\uDCC1', '[~]'],   // folder / file read
     ['\uD83D\uDCDD', '[+]'],   // memo / write
     ['\uD83E\uDDE0', '[@]'],   // brain / memory
-    ['\u2699',       '[*]'],   // gear / settings
+    ['\u2699', '[*]'],   // gear / settings
     ['\uD83D\uDD27', '[*]'],   // wrench / tool
     ['\uD83C\uDF10', '[web]'], // globe / web
     ['\uD83D\uDCE6', '[pkg]'], // package
@@ -29,22 +29,22 @@
   // === STATE ===
   var state = {
     serverUrl: DEFAULT_URL,
-    apiKey:    DEFAULT_KEY,
-    mode:      DEFAULT_MODE,    // 'streaming' | 'responses'
-    maxTurns:  DEFAULT_TURNS,
+    apiKey: DEFAULT_KEY,
+    mode: DEFAULT_MODE,    // 'streaming' | 'responses'
+    maxTurns: DEFAULT_TURNS,
 
-    sessions:         [],       // [{id, mode, preview, time, lastResponseId?, messageCount?}]
-    activeSession:    null,     // string session ID
-    messages:         [],       // current view buffer [{role, content, tools}]
+    sessions: [],       // [{id, mode, preview, time, lastResponseId?, messageCount?}]
+    activeSession: null,     // string session ID
+    messages: [],       // current view buffer [{role, content, tools}]
 
     // Responses-mode paging
-    latestResponseId:    null,
-    earliestResponseId:  null,
-    hasEarlier:          false,
-    loadingEarlier:      false,
+    latestResponseId: null,
+    earliestResponseId: null,
+    hasEarlier: false,
+    loadingEarlier: false,
 
     connected: false,
-    sending:   false,
+    sending: false,
     lastError: null
   };
 
@@ -80,21 +80,21 @@
   function saveMeta() {
     try {
       // Never store message content in session metadata
-      var meta = state.sessions.map(function(s) {
+      var meta = state.sessions.map(function (s) {
         return {
-          id:             s.id,
-          mode:           s.mode,
-          preview:        s.preview,
-          time:           s.time,
+          id: s.id,
+          mode: s.mode,
+          preview: s.preview,
+          time: s.time,
           lastResponseId: s.lastResponseId || null
         };
       });
       localStorage.setItem(LS_META_KEY, JSON.stringify({
         serverUrl: state.serverUrl,
-        apiKey:    state.apiKey,
-        mode:      state.mode,
-        maxTurns:  state.maxTurns,
-        sessions:  meta
+        apiKey: state.apiKey,
+        mode: state.mode,
+        maxTurns: state.maxTurns,
+        sessions: meta
       }));
     } catch (e) { /* silent fail on Kindle */ }
   }
@@ -118,7 +118,7 @@
 
   /** Responses mode: remove any stored messages for a session (not needed) */
   function clearMessages(sessionId) {
-    try { localStorage.removeItem(LS_MSG_PREFIX + sessionId); } catch (e) {}
+    try { localStorage.removeItem(LS_MSG_PREFIX + sessionId); } catch (e) { }
   }
 
   function loadMeta() {
@@ -126,10 +126,10 @@
       var d = JSON.parse(localStorage.getItem(LS_META_KEY) || 'null');
       if (d) {
         state.serverUrl = d.serverUrl || DEFAULT_URL;
-        state.apiKey    = d.apiKey    || '';
-        state.mode      = d.mode      || DEFAULT_MODE;
-        state.maxTurns  = d.maxTurns  || DEFAULT_TURNS;
-        state.sessions  = d.sessions  || [];
+        state.apiKey = d.apiKey || '';
+        state.mode = d.mode || DEFAULT_MODE;
+        state.maxTurns = d.maxTurns || DEFAULT_TURNS;
+        state.sessions = d.sessions || [];
       }
     } catch (e) { /* use defaults */ }
   }
@@ -153,7 +153,7 @@
   function renderMarkdown(text) {
     if (!text) return '';
     var h = escapeHtml(text);
-    h = h.replace(/```([a-z]*)\n([\s\S]*?)```/g, function(_, _lang, code) {
+    h = h.replace(/```([a-z]*)\n([\s\S]*?)```/g, function (_, _lang, code) {
       return '<pre class="code-block">' + code.trim() + '</pre>';
     });
     h = h.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
@@ -166,7 +166,7 @@
   function formatTime(ts) {
     if (!ts) return '';
     var d = new Date(ts), now = new Date(), diff = now - d;
-    if (diff < 60000)   return 'just now';
+    if (diff < 60000) return 'just now';
     if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
     if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
     return d.toLocaleDateString();
@@ -226,7 +226,7 @@
 
   function deleteSession(id) {
     clearMessages(id);
-    state.sessions = state.sessions.filter(function(s) { return s.id !== id; });
+    state.sessions = state.sessions.filter(function (s) { return s.id !== id; });
     saveMeta();
   }
 
@@ -244,25 +244,25 @@
   function checkHealth(manual) {
     if (manual) E['test-connection-btn'].textContent = '[...]';
     var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, 6000);
+    var tid = setTimeout(function () { ctrl.abort(); }, 6000);
     // Use /v1/models — requires auth, so a 401 correctly shows as disconnected
     fetch(state.serverUrl + '/v1/models', { headers: headers(), signal: ctrl.signal })
-      .then(function(r) {
+      .then(function (r) {
         clearTimeout(tid);
         state.connected = r.ok;
         state.lastError = r.ok ? null : 'Auth failed (' + r.status + ')';
         renderStatus();
         if (manual) E['test-connection-btn'].textContent = r.ok ? '[OK!]' : '[ERR ' + r.status + ']';
       })
-      .catch(function(err) {
+      .catch(function (err) {
         clearTimeout(tid);
         state.connected = false;
         state.lastError = err.message || 'Connection failed';
         renderStatus();
         if (manual) E['test-connection-btn'].textContent = '[FAIL]';
       })
-      .finally(function() {
-        if (manual) setTimeout(function() { E['test-connection-btn'].textContent = '[TEST]'; }, 2500);
+      .finally(function () {
+        if (manual) setTimeout(function () { E['test-connection-btn'].textContent = '[TEST]'; }, 2500);
       });
   }
 
@@ -289,64 +289,64 @@
   // ─── STREAMING MODE ─────────────────────────────────────────────────────────
   function doStreaming(text, session) {
     var ctrl = new AbortController();
-    var tid = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
+    var tid = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     var assistantMsg = { role: 'assistant', content: '', tools: [] };
     state.messages.push(assistantMsg);
     showTyping(false);
     renderMessages();
 
     var body = {
-      model:    'hermes-agent',
+      model: 'hermes-agent',
       messages: [{ role: 'user', content: text }],
-      stream:   true
+      stream: true
     };
 
     console.log('[hermes] Streaming POST /v1/chat/completions, session:', session.id);
     fetch(state.serverUrl + '/v1/chat/completions', {
-      method:  'POST',
+      method: 'POST',
       headers: headers(true), // include X-Hermes-Session-Id
-      body:    JSON.stringify(body),
-      signal:  ctrl.signal
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     })
-    .then(function(r) {
-      clearTimeout(tid);
-      if (!r.ok) {
-        return r.text().then(function(t) {
-          throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
-        });
-      }
-      return pumpChatStream(r, assistantMsg);
-    })
-    .then(function() {
-      // Persist messages to localStorage (streaming mode only)
-      saveMessages(session.id, state.messages);
-      touchSession(session.id, assistantMsg.content);
-      // Enforce maxTurns view (don't discard, just show notice)
-      enforceMaxTurns();
-      renderMessages();
-    })
-    .catch(function(err) {
-      var errMsg = err.message || String(err);
-      console.error('[hermes] Stream error:', errMsg);
-      state.lastError = errMsg;
-      state.messages.push({ role: 'error', content: errMsg, tools: [] });
-      renderMessages();
-    })
-    .finally(function() {
-      state.sending = false;
-      showTyping(false);
-      updateInputState();
-      removeCursor();
-    });
+      .then(function (r) {
+        clearTimeout(tid);
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
+          });
+        }
+        return pumpChatStream(r, assistantMsg);
+      })
+      .then(function () {
+        // Persist messages to localStorage (streaming mode only)
+        saveMessages(session.id, state.messages);
+        touchSession(session.id, assistantMsg.content);
+        // Enforce maxTurns view (don't discard, just show notice)
+        enforceMaxTurns();
+        renderMessages();
+      })
+      .catch(function (err) {
+        var errMsg = err.message || String(err);
+        console.error('[hermes] Stream error:', errMsg);
+        state.lastError = errMsg;
+        state.messages.push({ role: 'error', content: errMsg, tools: [] });
+        renderMessages();
+      })
+      .finally(function () {
+        state.sending = false;
+        showTyping(false);
+        updateInputState();
+        removeCursor();
+      });
   }
 
   function pumpChatStream(response, msg) {
-    var reader  = response.body.getReader();
+    var reader = response.body.getReader();
     var decoder = new TextDecoder();
-    var buf     = '';
+    var buf = '';
 
     function read() {
-      return reader.read().then(function(result) {
+      return reader.read().then(function (result) {
         if (result.done) {
           if (buf.trim()) processChatSSE(buf.split('\n'), msg);
           return;
@@ -367,19 +367,19 @@
       if (!line || line === 'data: [DONE]') continue;
       if (line.indexOf('data:') !== 0) continue;
       try {
-        var d     = JSON.parse(line.substring(5).trim());
+        var d = JSON.parse(line.substring(5).trim());
         var delta = d.choices && d.choices[0] && d.choices[0].delta && d.choices[0].delta.content;
         if (!delta) continue;
 
         // Detect tool progress injected as `emoji label` by the server
         var toolMatch = delta.match(/\n?`([^`]+)`\s?\n?/);
         if (toolMatch) {
-          var raw  = toolMatch[1];
+          var raw = toolMatch[1];
           var icon = '[*]';
           var label = raw;
           for (var j = 0; j < EMOJI_LIST.length; j++) {
             if (raw.indexOf(EMOJI_LIST[j][0]) === 0) {
-              icon  = EMOJI_LIST[j][1];
+              icon = EMOJI_LIST[j][1];
               label = raw.substring(EMOJI_LIST[j][0].length).trim();
               break;
             }
@@ -398,12 +398,12 @@
   function doResponses(text, session) {
     showTyping(true);
     var ctrl = new AbortController();
-    var tid  = setTimeout(function() { ctrl.abort(); }, TIMEOUT_MS);
+    var tid = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
 
     var body = {
-      model:        'hermes-agent',
-      input:        text,
-      store:        true,
+      model: 'hermes-agent',
+      input: text,
+      store: true,
       instructions: DEFAULT_INST
     };
     // Use conversation name = session ID for server-side response chaining
@@ -411,49 +411,49 @@
 
     console.log('[hermes] Blocking POST /v1/responses, conversation:', session.id);
     fetch(state.serverUrl + '/v1/responses', {
-      method:  'POST',
+      method: 'POST',
       headers: headers(false), // no session header — responses uses conversation param
-      body:    JSON.stringify(body),
-      signal:  ctrl.signal
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     })
-    .then(function(r) {
-      clearTimeout(tid);
-      if (!r.ok) {
-        return r.text().then(function(t) {
-          throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
-        });
-      }
-      return r.json();
-    })
-    .then(function(data) {
-      var msg = parseResponseData(data);
-      state.messages.push(msg);
-
-      if (data.id) {
-        state.latestResponseId = data.id;
-        // previous_response_id tells us if there's earlier history
-        if (data.previous_response_id && !state.earliestResponseId) {
-          state.earliestResponseId = data.previous_response_id;
+      .then(function (r) {
+        clearTimeout(tid);
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            throw new Error('HTTP ' + r.status + ': ' + (t.substring(0, 200) || 'error'));
+          });
         }
-        touchSession(session.id, msg.content, data.id);
-      }
+        return r.json();
+      })
+      .then(function (data) {
+        var msg = parseResponseData(data);
+        state.messages.push(msg);
 
-      // Check if we need "load earlier" based on turn count
-      updateHasEarlier();
-      renderMessages();
-    })
-    .catch(function(err) {
-      var errMsg = err.message || String(err);
-      console.error('[hermes] Responses error:', errMsg);
-      state.lastError = errMsg;
-      state.messages.push({ role: 'error', content: errMsg, tools: [] });
-      renderMessages();
-    })
-    .finally(function() {
-      state.sending = false;
-      showTyping(false);
-      updateInputState();
-    });
+        if (data.id) {
+          state.latestResponseId = data.id;
+          // previous_response_id tells us if there's earlier history
+          if (data.previous_response_id && !state.earliestResponseId) {
+            state.earliestResponseId = data.previous_response_id;
+          }
+          touchSession(session.id, msg.content, data.id);
+        }
+
+        // Check if we need "load earlier" based on turn count
+        updateHasEarlier();
+        renderMessages();
+      })
+      .catch(function (err) {
+        var errMsg = err.message || String(err);
+        console.error('[hermes] Responses error:', errMsg);
+        state.lastError = errMsg;
+        state.messages.push({ role: 'error', content: errMsg, tools: [] });
+        renderMessages();
+      })
+      .finally(function () {
+        state.sending = false;
+        showTyping(false);
+        updateInputState();
+      });
   }
 
   // ─── RESPONSES MODE: HISTORY PAGING ──────────────────────────────────────────
@@ -475,22 +475,22 @@
     E['load-earlier-btn'].textContent = '[Loading...]';
 
     fetch(state.serverUrl + '/v1/responses/' + state.earliestResponseId, { headers: headers(false) })
-      .then(function(r) {
+      .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
-      .then(function(data) {
+      .then(function (data) {
         var msgs = responseToMessages(data);
         state.messages = msgs.concat(state.messages);
         state.earliestResponseId = data.previous_response_id || null;
         updateHasEarlier();
         renderMessages();
       })
-      .catch(function(err) {
+      .catch(function (err) {
         E['load-earlier-btn'].textContent = '[ERR: ' + (err.message || 'Failed') + ']';
-        setTimeout(function() { E['load-earlier-btn'].textContent = '[Load earlier messages...]'; }, 2000);
+        setTimeout(function () { E['load-earlier-btn'].textContent = '[Load earlier messages...]'; }, 2000);
       })
-      .finally(function() {
+      .finally(function () {
         state.loadingEarlier = false;
         E['load-earlier-btn'].textContent = '[Load earlier messages...]';
       });
@@ -504,18 +504,18 @@
       return;
     }
     fetch(state.serverUrl + '/v1/responses/' + session.lastResponseId, { headers: headers(false) })
-      .then(function(r) {
+      .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
-      .then(function(data) {
+      .then(function (data) {
         state.messages = responseToMessages(data);
-        state.latestResponseId   = data.id;
+        state.latestResponseId = data.id;
         state.earliestResponseId = data.previous_response_id || null;
         updateHasEarlier();
         renderMessages();
       })
-      .catch(function(err) {
+      .catch(function (err) {
         console.warn('[hermes] Could not load session history:', err.message);
         state.hasEarlier = false;
         updateLoadEarlierUI();
@@ -593,15 +593,15 @@
 
   // === RENDERING ===
   function renderStatus() {
-    var s  = state.connected ? '[CONNECTED]' : '[OFFLINE]';
+    var s = state.connected ? '[CONNECTED]' : '[OFFLINE]';
     if (state.lastError && !state.connected) s = '[OFFLINE: ' + state.lastError.substring(0, 20) + ']';
     E['status'].textContent = s;
-    E['status'].className   = 'status status--' + (state.connected ? 'online' : 'offline');
+    E['status'].className = 'status status--' + (state.connected ? 'online' : 'offline');
   }
 
   function renderModeBadge() {
     var m = state.mode;
-    if (E['mode-badge'])      { E['mode-badge'].textContent = m === 'streaming' ? '[STREAM]' : '[RESP]'; }
+    if (E['mode-badge']) { E['mode-badge'].textContent = m === 'streaming' ? '[STREAM]' : '[RESP]'; }
     if (E['chat-mode-badge']) { E['chat-mode-badge'].textContent = m === 'streaming' ? '[S]' : '[R]'; }
     if (E['mode-hint']) {
       E['mode-hint'].textContent = m === 'streaming'
@@ -612,7 +612,7 @@
 
   function showView(name) {
     E['sessions-view'].style.display = name === 'sessions' ? '' : 'none';
-    E['chat-view'].style.display     = name === 'chat'     ? '' : 'none';
+    E['chat-view'].style.display = name === 'chat' ? '' : 'none';
     if (name === 'sessions') renderSessionsList();
   }
 
@@ -625,35 +625,35 @@
     E['sessions-empty'].style.display = 'none';
     var frag = document.createDocumentFragment();
     for (var i = 0; i < state.sessions.length; i++) {
-      (function(s) {
+      (function (s) {
         var btn = document.createElement('button');
         btn.className = 'thread-item' + (s.id === state.activeSession ? ' thread-item--active' : '');
 
         var nm = document.createElement('span');
-        nm.className   = 'thread-name';
+        nm.className = 'thread-name';
         nm.textContent = s.id;
         btn.appendChild(nm);
 
         // Mode pill
         var mp = document.createElement('span');
-        mp.className   = 'session-mode-pill';
+        mp.className = 'session-mode-pill';
         mp.textContent = s.mode === 'streaming' ? '[S]' : '[R]';
         btn.appendChild(mp);
 
         if (s.preview) {
           var pv = document.createElement('span');
-          pv.className   = 'thread-preview';
+          pv.className = 'thread-preview';
           pv.textContent = s.preview;
           btn.appendChild(pv);
         }
         if (s.time) {
           var tm = document.createElement('span');
-          tm.className   = 'thread-time';
+          tm.className = 'thread-time';
           tm.textContent = formatTime(s.time);
           btn.appendChild(tm);
         }
 
-        btn.addEventListener('click', function() { openSession(s.id); });
+        btn.addEventListener('click', function () { openSession(s.id); });
         frag.appendChild(btn);
       })(state.sessions[i]);
     }
@@ -677,7 +677,7 @@
       // Show a "... N older messages ..." note at top
       msgs = msgs.slice(-(state.maxTurns * 2));
       var note = document.createElement('div');
-      note.className   = 'load-earlier-note';
+      note.className = 'load-earlier-note';
       note.textContent = '[... older messages not shown — scroll stored locally ...]';
       E['messages'].appendChild(note);
     }
@@ -695,7 +695,7 @@
     el.className = 'message message--' + msg.role;
 
     var role = document.createElement('span');
-    role.className   = 'message-role';
+    role.className = 'message-role';
     role.textContent = msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Hermes' : 'Error';
     el.appendChild(role);
 
@@ -705,12 +705,12 @@
       tc.className = 'tools-container';
       for (var i = 0; i < msg.tools.length; i++) {
         var b = document.createElement('span');
-        b.className   = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
+        b.className = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
         b.textContent = (msg.tools[i].icon || '[*]') + ' ' + msg.tools[i].name;
         tc.appendChild(b);
       }
       el.appendChild(tc);
-      setTimeout(function() { tc.scrollLeft = tc.scrollWidth; }, 0);
+      setTimeout(function () { tc.scrollLeft = tc.scrollWidth; }, 0);
     }
 
     if (msg.content) {
@@ -723,7 +723,7 @@
   }
 
   function updateLastMessage(msg) {
-    var all  = E['messages'].querySelectorAll('.message');
+    var all = E['messages'].querySelectorAll('.message');
     var last = all[all.length - 1];
     if (!last) { renderMessages(); return; }
 
@@ -743,7 +743,7 @@
       tc.innerHTML = '';
       for (var i = 0; i < msg.tools.length; i++) {
         var b = document.createElement('span');
-        b.className   = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
+        b.className = 'badge' + (msg.tools[i].isComplete ? ' badge--complete' : ' badge--active');
         b.textContent = (msg.tools[i].icon || '[*]') + ' ' + msg.tools[i].name;
         tc.appendChild(b);
       }
@@ -775,8 +775,8 @@
 
   function updateInputState() {
     E['message-input'].disabled = state.sending;
-    E['send-btn'].disabled      = state.sending;
-    E['send-btn'].textContent   = state.sending ? '[...]' : '[SEND]';
+    E['send-btn'].disabled = state.sending;
+    E['send-btn'].textContent = state.sending ? '[...]' : '[SEND]';
   }
 
   function updateLoadEarlierUI() {
@@ -786,12 +786,12 @@
   // === SESSION OPEN ===
   function openSession(id) {
     var session = upsertSession(id);
-    state.activeSession      = id;
-    state.messages           = [];
-    state.latestResponseId   = null;
+    state.activeSession = id;
+    state.messages = [];
+    state.latestResponseId = null;
     state.earliestResponseId = null;
-    state.hasEarlier         = false;
-    state.lastError          = null;
+    state.hasEarlier = false;
+    state.lastError = null;
 
     E['session-title'].textContent = id;
     E['chat-mode-badge'].textContent = session.mode === 'streaming' ? '[S]' : '[R]';
@@ -813,25 +813,25 @@
   // === FORM VALIDATION HELPERS ===
   function showFormError(el, msg) {
     if (!el) return;
-    el.textContent    = msg;
-    el.style.display  = msg ? '' : 'none';
+    el.textContent = msg;
+    el.style.display = msg ? '' : 'none';
   }
 
   // === EVENT BINDING ===
   function bindEvents() {
     // New session
-    E['new-session-btn'].addEventListener('click', function() {
+    E['new-session-btn'].addEventListener('click', function () {
       E['new-session-form'].style.display = '';
       E['new-session-input'].value = '';
       showFormError(E['new-session-error'], '');
       E['new-session-input'].focus();
     });
-    E['new-session-cancel'].addEventListener('click', function() {
+    E['new-session-cancel'].addEventListener('click', function () {
       E['new-session-form'].style.display = 'none';
     });
 
     function tryCreateSession() {
-      var id  = E['new-session-input'].value.trim();
+      var id = E['new-session-input'].value.trim();
       var err = validateSessionId(id);
       if (err) { showFormError(E['new-session-error'], err); return; }
       showFormError(E['new-session-error'], '');
@@ -842,13 +842,13 @@
     }
 
     E['new-session-create'].addEventListener('click', tryCreateSession);
-    E['new-session-input'].addEventListener('keydown', function(ev) {
+    E['new-session-input'].addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter') { ev.preventDefault(); tryCreateSession(); }
     });
 
     // Rejoin
     function tryRejoin() {
-      var id  = E['rejoin-input'].value.trim();
+      var id = E['rejoin-input'].value.trim();
       var err = validateSessionId(id);
       if (err) { showFormError(E['rejoin-error'], err); return; }
       showFormError(E['rejoin-error'], '');
@@ -859,12 +859,12 @@
       openSession(id);
     }
     E['rejoin-btn'].addEventListener('click', tryRejoin);
-    E['rejoin-input'].addEventListener('keydown', function(ev) {
+    E['rejoin-input'].addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter') { ev.preventDefault(); tryRejoin(); }
     });
 
     // Settings
-    E['settings-toggle'].addEventListener('click', function() {
+    E['settings-toggle'].addEventListener('click', function () {
       var p = E['settings-panel'];
       p.style.display = p.style.display === 'none' ? '' : 'none';
     });
@@ -872,7 +872,7 @@
     // Live mode hint update
     var modeRadios = document.querySelectorAll('input[name="setting-mode"]');
     for (var i = 0; i < modeRadios.length; i++) {
-      modeRadios[i].addEventListener('change', function() {
+      modeRadios[i].addEventListener('change', function () {
         var sel = document.querySelector('input[name="setting-mode"]:checked');
         if (sel) {
           var m = sel.value;
@@ -883,31 +883,31 @@
       });
     }
 
-    E['settings-save'].addEventListener('click', function() {
+    E['settings-save'].addEventListener('click', function () {
       var sel = document.querySelector('input[name="setting-mode"]:checked');
       state.serverUrl = E['setting-url'].value.trim() || DEFAULT_URL;
-      state.apiKey    = E['setting-key'].value || '';
-      state.mode      = sel ? sel.value : state.mode;
-      state.maxTurns  = parseInt(E['setting-max-turns'].value, 10) || DEFAULT_TURNS;
+      state.apiKey = E['setting-key'].value || '';
+      state.mode = sel ? sel.value : state.mode;
+      state.maxTurns = parseInt(E['setting-max-turns'].value, 10) || DEFAULT_TURNS;
       saveMeta();
       renderModeBadge();
       checkHealth();
       E['settings-panel'].style.display = 'none';
     });
 
-    E['test-connection-btn'].addEventListener('click', function() {
+    E['test-connection-btn'].addEventListener('click', function () {
       state.serverUrl = E['setting-url'].value.trim() || state.serverUrl;
       checkHealth(true);
     });
 
     // Back
-    E['back-btn'].addEventListener('click', function() { showView('sessions'); });
+    E['back-btn'].addEventListener('click', function () { showView('sessions'); });
 
     // Load earlier (responses mode paging)
     E['load-earlier-btn'].addEventListener('click', loadEarlier);
 
     // Send
-    E['send-btn'].addEventListener('click', function() {
+    E['send-btn'].addEventListener('click', function () {
       var text = E['message-input'].value;
       if (text.trim()) {
         sendMessage(text.trim());
@@ -915,16 +915,16 @@
         autoGrow();
       }
     });
-    E['message-input'].addEventListener('keydown', function(ev) {
+    E['message-input'].addEventListener('keydown', function (ev) {
       if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); E['send-btn'].click(); }
     });
     E['message-input'].addEventListener('input', autoGrow);
-    E['message-input'].addEventListener('focus', function() {
-      setTimeout(function() { scrollIntoViewKindle(E['message-input']); }, 150);
+    E['message-input'].addEventListener('focus', function () {
+      setTimeout(function () { scrollIntoViewKindle(E['message-input']); }, 150);
     });
 
     // Escape closes forms
-    document.addEventListener('keydown', function(ev) {
+    document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape') {
         if (E['new-session-form'].style.display !== 'none') {
           E['new-session-form'].style.display = 'none';
@@ -943,11 +943,11 @@
 
   // === INIT ===
   function init() {
-    window.onerror = function(msg, src, ln) {
+    window.onerror = function (msg, src, ln) {
       console.error('[hermes]', msg, src, ln);
       return false;
     };
-    window.addEventListener('unhandledrejection', function(e) {
+    window.addEventListener('unhandledrejection', function (e) {
       console.error('[hermes] Promise error:', e.reason);
     });
 
@@ -955,14 +955,14 @@
     loadMeta();
 
     // Populate settings UI
-    E['setting-url'].value       = state.serverUrl;
-    E['setting-key'].value       = state.apiKey;
+    E['setting-url'].value = state.serverUrl;
+    E['setting-key'].value = state.apiKey;
     E['setting-max-turns'].value = state.maxTurns;
 
     var modeStreamEl = E['setting-mode-streaming'];
-    var modeRespEl   = E['setting-mode-responses'];
+    var modeRespEl = E['setting-mode-responses'];
     if (state.mode === 'streaming') { if (modeStreamEl) modeStreamEl.checked = true; }
-    else                            { if (modeRespEl)   modeRespEl.checked   = true; }
+    else { if (modeRespEl) modeRespEl.checked = true; }
 
     renderModeBadge();
     bindEvents();
