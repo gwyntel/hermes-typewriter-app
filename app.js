@@ -13,27 +13,16 @@
   // Session ID rules: letters, numbers, hyphens, underscores, 3-64 chars
   var SESSION_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
 
-  // === EMOJI → ASCII (Kindle has no emoji font) ===
-  var EMOJI_LIST = [
-    ['\uD83D\uDCBB', '\u2328'],   // laptop / terminal → ⌨
-    ['\uD83D\uDD0D', '\u2315'],   // magnifier / search → ⌕
-    ['\uD83D\uDCC1', '\u25A4'],   // folder / file read → ▤
-    ['\uD83D\uDCDD', '\u270E'],   // memo / write → ✎
-    ['\uD83E\uDDE0', '\u269B'],   // brain / memory → ⚛
-    ['\u2699', '\u2699'],         // gear / settings → ⚙ (native glyph)
-    ['\uD83D\uDD27', '\u2692'],   // wrench / tool → ⚒
-    ['\uD83C\uDF10', '\u2295'],   // globe / web → ⊕
-    ['\uD83D\uDCE6', '\u229E'],   // package → ⊞
-    ['\u2705', '\u2713'],         // checkmark → ✓
-    ['\u274C', '\u2715'],         // x → ✕
-    ['\u26A0', '\u26A0'],         // warning → ⚠ (native)
-    ['\u2139', '\u24D8'],         // info → ⓘ
-    ['\u2728', '\u2726'],         // sparkles → ✦
-    ['\uD83D\uDCD6', '\u2637'],   // book → ☷
-    ['\uD83D\uDD12', '\u26D3'],   // lock → ⛓
-    ['\u23F3', '\u231B'],         // hourglass → ⌛
-    ['\uD83D\uDD17', '\u29C9'],   // link → ⧉
-  ];
+  // === MARKED CONFIG (Kindle-safe) ===
+  // marked.js v4 UMD build - disable async (Kindle doesn't support async imports)
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({
+      breaks: true,      // GitHub-style line breaks
+      gfm: true,         // GitHub Flavored Markdown
+      headerIds: false,  // No auto-generated IDs
+      mangle: false     // Don't mangle email addresses
+    });
+  }
 
   // === STATE ===
   var state = {
@@ -148,13 +137,10 @@
   }
 
   // === HELPERS ===
+  // Twemoji handles emoji → <img> conversion
+  // This is a no-op now, kept for backwards compatibility
   function replaceEmoji(text) {
-    if (!text) return '';
-    var r = text;
-    for (var i = 0; i < EMOJI_LIST.length; i++) {
-      r = r.split(EMOJI_LIST[i][0]).join(EMOJI_LIST[i][1]);
-    }
-    return r;
+    return text || '';
   }
 
   function escapeHtml(s) {
@@ -165,6 +151,11 @@
 
   function renderMarkdown(text) {
     if (!text) return '';
+    // Use marked.js if available, otherwise fall back to basic rendering
+    if (typeof marked === 'function') {
+      return marked.parse(text);
+    }
+    // Fallback: basic markdown (code, bold, italic, line breaks)
     var h = escapeHtml(text);
     h = h.replace(/```([a-z]*)\n([\s\S]*?)```/g, function (_, _lang, code) {
       return '<pre class="code-block">' + code.trim() + '</pre>';
@@ -174,6 +165,17 @@
     h = h.replace(/([^*])\*([^*]+)\*/g, '$1<em>$2</em>');
     h = h.replace(/\n/g, '<br>');
     return h;
+  }
+
+  // Apply Twemoji to an element (converts emoji to <img> tags)
+  function applyTwemoji(el) {
+    if (typeof twemoji === 'object' && twemoji.parse) {
+      twemoji.parse(el, {
+        folder: 'svg',  // SVG is smaller and scales better
+        ext: '.svg',
+        className: 'emoji'
+      });
+    }
   }
 
   function formatTime(ts) {
@@ -385,22 +387,19 @@
         if (!delta) continue;
 
         // Detect tool progress injected as `emoji label` by the server
+        // Format: \n`{emoji} {label}`\n
         var toolMatch = delta.match(/\n?`([^`]+)`\s?\n?/);
         if (toolMatch) {
           var raw = toolMatch[1];
-          var icon = '[*]';
-          var label = raw;
-          for (var j = 0; j < EMOJI_LIST.length; j++) {
-            if (raw.indexOf(EMOJI_LIST[j][0]) === 0) {
-              icon = EMOJI_LIST[j][1];
-              label = raw.substring(EMOJI_LIST[j][0].length).trim();
-              break;
-            }
-          }
+          // Extract emoji (first unicode char) and label (rest after space)
+          // Twemoji will convert emoji to image when rendered
+          var parts = raw.split(/\s+/);
+          var icon = parts[0] || '[*]';  // Keep raw emoji - Twemoji handles it
+          var label = parts.slice(1).join(' ') || raw;
           msg.tools.push({ name: label, icon: icon, isComplete: true });
           console.log('[hermes] Tool indicator:', label);
         } else {
-          msg.content += replaceEmoji(delta);
+          msg.content += delta;  // Keep raw emoji - Twemoji converts later
         }
         updateLastMessage(msg);
       } catch (e) { /* partial chunk — ignore */ }
@@ -760,6 +759,10 @@
       c.innerHTML = renderMarkdown(msg.content);
       el.appendChild(c);
     }
+
+    // Apply Twemoji to convert emoji to images (Kindle-safe)
+    applyTwemoji(el);
+
     return el;
   }
 
@@ -799,6 +802,10 @@
       last.appendChild(c);
     }
     c.innerHTML = renderMarkdown(msg.content) + '<span class="streaming-cursor">_</span>';
+    
+    // Apply Twemoji to new content
+    applyTwemoji(c);
+    
     scrollToBottom();
   }
 

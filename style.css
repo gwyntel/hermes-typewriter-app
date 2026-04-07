@@ -5,7 +5,7 @@
      - No flexbox gap
      - No gradients / blur / box-shadow blur
      - No web fonts — system monospace only
-     - No emoji
+     - Emoji via Twemoji (PNG/SVG images, not font)
      - Minimum 48px touch targets
      - High contrast monochrome
    ========================================================== */
@@ -576,6 +576,34 @@ label {
   color: var(--ink-mid);
 }
 
+/* --- EMOJI (Twemoji) --- */
+/* Twemoji converts emoji to <img> tags for Kindle compatibility */
+img.emoji {
+  height: 1em;
+  width: 1em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.1em;
+  display: inline-block;
+  /* Force grayscale for e-ink (color emoji become muddy) */
+  filter: grayscale(100%);
+  -webkit-filter: grayscale(100%);
+  /* Ensure sharp rendering */
+  image-rendering: crisp-edges;
+}
+
+/* Emoji in badges should be slightly smaller */
+.badge img.emoji {
+  height: 0.9em;
+  width: 0.9em;
+  vertical-align: middle;
+}
+
+/* Dark mode: emoji should remain readable */
+.dark-mode img.emoji {
+  filter: grayscale(100%) invert(1);
+  -webkit-filter: grayscale(100%) invert(1);
+}
+
 /* --- CODE --- */
 .code-block {
   display: block;
@@ -594,6 +622,70 @@ label {
   padding: 0 4px;
   border: 1px solid var(--border-lt);
   font-size: inherit;
+}
+
+/* --- TABLES (GFM) --- */
+/* Kindle-friendly table styles: high contrast, no gradients */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--sp-4) 0;
+  font-size: var(--fs-sm);
+  /* Prevent overflow on narrow screens */
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* Table headers - bold with bottom border */
+thead {
+  border-bottom: 2px solid var(--border);
+}
+
+th {
+  font-weight: bold;
+  text-align: left;
+  padding: var(--sp-2) var(--sp-3);
+  border-right: 1px solid var(--border-lt);
+}
+
+th:last-child {
+  border-right: none;
+}
+
+/* Table cells */
+td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-lt);
+  border-right: 1px solid var(--border-lt);
+  vertical-align: top;
+}
+
+td:last-child {
+  border-right: none;
+}
+
+/* Alternating rows for readability (using solid colors, no gradients) */
+tbody tr:nth-child(odd) {
+  background: var(--paper);
+}
+
+tbody tr:nth-child(even) {
+  background: var(--paper-dim);
+}
+
+/* Last row - no bottom border */
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Dark mode tables */
+.dark-mode tbody tr:nth-child(odd) {
+  background: var(--paper);
+}
+
+.dark-mode tbody tr:nth-child(even) {
+  background: var(--paper-dim);
 }
 
 /* --- STREAMING CURSOR --- */
