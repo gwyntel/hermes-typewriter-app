@@ -245,6 +245,83 @@
     saveMeta();
   }
 
+  // === SERVER SESSIONS API ===
+  function fetchServerSessions(callback) {
+    if (!state.serverUrl || !state.apiKey) {
+      if (callback) callback(null);
+      return;
+    }
+    var ctrl = new AbortController();
+    var tid = setTimeout(function () { ctrl.abort(); }, 8000);
+    
+    fetch(state.serverUrl + '/v1/sessions?limit=50', {
+      headers: headers(),
+      signal: ctrl.signal
+    })
+      .then(function (r) {
+        clearTimeout(tid);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        var serverSessions = data.sessions || [];
+        if (callback) callback(serverSessions);
+      })
+      .catch(function (err) {
+        clearTimeout(tid);
+        console.log('[hermes] Failed to fetch sessions:', err.message);
+        if (callback) callback(null);
+      });
+  }
+
+  // Merge server sessions with local sessions
+  // Server sessions take precedence for metadata (preview, time, message_count)
+  function mergeSessions(serverSessions) {
+    if (!serverSessions || serverSessions.length === 0) {
+      // Just use local sessions
+      return;
+    }
+    
+    // Create a map of local session IDs for quick lookup
+    var localIds = {};
+    for (var i = 0; i < state.sessions.length; i++) {
+      localIds[state.sessions[i].id] = true;
+    }
+    
+    // Add server sessions (they're the source of truth now)
+    var merged = [];
+    var seenIds = {};
+    
+    // First, add all server sessions
+    for (var j = 0; j < serverSessions.length; j++) {
+      var ss = serverSessions[j];
+      if (seenIds[ss.id]) continue;
+      seenIds[ss.id] = true;
+      
+      merged.push({
+        id: ss.id,
+        mode: state.mode, // Use current mode setting
+        preview: ss.preview || '',
+        title: ss.title || null,
+        source: ss.source || null,
+        message_count: ss.message_count || 0,
+        time: ss.last_active ? new Date(ss.last_active).getTime() : Date.now()
+      });
+    }
+    
+    // Then add any local-only sessions (not on server yet)
+    for (var k = 0; k < state.sessions.length; k++) {
+      var ls = state.sessions[k];
+      if (!seenIds[ls.id]) {
+        seenIds[ls.id] = true;
+        merged.push(ls);
+      }
+    }
+    
+    state.sessions = merged;
+    saveMeta();
+  }
+
   // === API HEADERS ===
   function headers(includeSession) {
     var h = { 'Content-Type': 'application/json' };
@@ -630,6 +707,20 @@
   }
 
   function renderSessionsList() {
+    // Show loading state
+    E['sessions-list'].innerHTML = '<div class="loading-state"><p class="muted">Loading sessions...</p></div>';
+    E['sessions-empty'].style.display = 'none';
+    
+    // Fetch from server first, then render
+    fetchServerSessions(function(serverSessions) {
+      if (serverSessions) {
+        mergeSessions(serverSessions);
+      }
+      _renderSessionsListInner();
+    });
+  }
+  
+  function _renderSessionsListInner() {
     E['sessions-list'].innerHTML = '';
     if (state.sessions.length === 0) {
       E['sessions-empty'].style.display = '';
@@ -642,16 +733,20 @@
         var btn = document.createElement('button');
         btn.className = 'thread-item' + (s.id === state.activeSession ? ' thread-item--active' : '');
 
+        // Session name or title
         var nm = document.createElement('span');
         nm.className = 'thread-name';
-        nm.textContent = s.id;
+        // Show title if available, otherwise show ID
+        nm.textContent = s.title || s.id;
         btn.appendChild(nm);
 
-        // Mode pill
-        var mp = document.createElement('span');
-        mp.className = 'session-mode-pill';
-        mp.textContent = s.mode === 'streaming' ? '\u25CE' : '\u2630';
-        btn.appendChild(mp);
+        // Source badge (discord, telegram, cli, api_server)
+        if (s.source) {
+          var src = document.createElement('span');
+          src.className = 'session-source-pill';
+          src.textContent = s.source.substring(0, 3); // 'dis', 'tel', 'cli', 'api'
+          btn.appendChild(src);
+        }
 
         if (s.preview) {
           var pv = document.createElement('span');
@@ -659,12 +754,18 @@
           pv.textContent = s.preview;
           btn.appendChild(pv);
         }
+        
+        // Meta: message count + time
+        var meta = document.createElement('span');
+        meta.className = 'thread-meta';
+        var metaText = '';
+        if (s.message_count) metaText += s.message_count + ' msgs';
         if (s.time) {
-          var tm = document.createElement('span');
-          tm.className = 'thread-time';
-          tm.textContent = formatTime(s.time);
-          btn.appendChild(tm);
+          if (metaText) metaText += ' • ';
+          metaText += formatTime(s.time);
         }
+        meta.textContent = metaText;
+        btn.appendChild(meta);
         
         // Delete button (2-step confirm for Kindle compatibility)
         var del = document.createElement('button');

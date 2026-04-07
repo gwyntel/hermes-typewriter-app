@@ -971,23 +971,37 @@ code, pre {
 }
 ```
 
-### NO EMOJIS
+### NO EMOJIS (Native Font)
 
 Emojis render as empty boxes `□` (tofu) because Kindle lacks emoji fonts.
 
-```html
-<!-- ❌ BROKEN — shows □ -->
-<p>Welcome! 👋</p>
-<button>✓ Submit</button>
-<span>Error: ❌</span>
+**Solution: Use Twemoji** (converts emoji to PNG/SVG images)
 
-<!-- ✅ USE ASCII EMOTICONS -->
-<p>Welcome! :)</p>
-<button>[OK] Submit</button>
-<span>Error: [X]</span>
+```html
+<!-- Add Twemoji CDN -->
+<script src="https://unpkg.com/twemoji@14.0.2/dist/twemoji.min.js"></script>
+
+<!-- After rendering content, call: -->
+<script>
+twemoji.parse(document.body, { folder: 'svg', ext: '.svg' });
+</script>
 ```
 
-**Emoji Replacement Table**:
+**CSS for e-ink:**
+```css
+img.emoji {
+  height: 1em;
+  width: 1em;
+  vertical-align: -0.1em;
+  filter: grayscale(100%);  /* Color emoji muddy on e-ink */
+  image-rendering: crisp-edges;
+}
+.dark-mode img.emoji {
+  filter: grayscale(100%) invert(1);  /* White emoji on black bg */
+}
+```
+
+**Alternative: ASCII Emoticons**
 
 | Emoji | ASCII | Emoji | ASCII |
 |-------|-------|-------|--------|
