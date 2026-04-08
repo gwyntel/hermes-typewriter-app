@@ -2,11 +2,10 @@
   'use strict';
 
   // === CONFIG DEFAULTS ===
-  var CONFIG = window.HERMES_CONFIG || {};
-  // Default to proxying through the app server itself (current origin)
-  var DEFAULT_URL = CONFIG.serverUrl || window.location.origin;
-  var DEFAULT_KEY = CONFIG.apiKey || '';
-  var DEFAULT_STREAM = !!CONFIG.streaming;
+  // Defaults - user can override in Settings (stored in localStorage)
+  var DEFAULT_URL = window.location.origin;
+  var DEFAULT_KEY = '';
+  var DEFAULT_STREAM = true;
   var TIMEOUT_MS = 120000;
   var MAX_RETRIES = 3;
   var RETRY_DELAY_MS = 1000;
@@ -218,6 +217,68 @@
   function deleteThread(name) {
     state.threads = state.threads.filter(function(t) { return t.name !== name; });
     save();
+  }
+
+  // === SESSION API ===
+  function fetchSessions() {
+    console.log('[sessions] Fetching from server...');
+    var url = state.serverUrl.replace(/\/v1$/, '') + '/sessions?limit=50';
+    return fetch(url, {
+      headers: headers()
+    })
+      .then(function(r) {
+        if (!r.ok) {
+          if (r.status === 401) throw new Error('Unauthorized - check API key');
+          throw new Error('HTTP ' + r.status);
+        }
+        return r.json();
+      })
+      .then(function(data) {
+        console.log('[sessions] Got', data.sessions ? data.sessions.length : 0, 'sessions');
+        // Convert server sessions to thread format
+        var sessions = (data.sessions || []).map(function(s) {
+          return {
+            id: s.id,
+            name: s.id,  // Use full ID as name
+            session_id: s.session_id,
+            source: s.source,
+            message_count: s.message_count,
+            started_at_iso: s.started_at_iso,
+            started_at_unix: s.started_at_unix,
+            time: s.started_at_unix ? s.started_at_unix * 1000 : Date.now(),
+            preview: s.message_count + ' msgs from ' + (s.source || 'unknown')
+          };
+        });
+        state.threads = sessions;
+        return sessions;
+      })
+      .catch(function(err) {
+        console.error('[sessions] Error:', err.message);
+        // Keep existing threads on error
+        return state.threads;
+      });
+  }
+
+  function fetchSessionMessages(sessionId, turns) {
+    turns = turns || 15;
+    console.log('[messages] Fetching', turns, 'turns for session', sessionId);
+    var url = state.serverUrl.replace(/\/v1$/, '') + '/sessions/' + encodeURIComponent(sessionId) + '/messages?turns=' + turns;
+    return fetch(url, {
+      headers: headers()
+    })
+      .then(function(r) {
+        if (!r.ok) {
+          if (r.status === 401) throw new Error('Unauthorized - check API key');
+          if (r.status === 404) throw new Error('Session not found');
+          throw new Error('HTTP ' + r.status);
+        }
+        return r.json();
+      })
+      .then(function(data) {
+        console.log('[messages] Got', data.messages ? data.messages.length : 0, 'messages');
+        // Pass through messages with tools already formatted by server
+        return data.messages || [];
+      });
   }
 
   // === API ===
@@ -582,7 +643,12 @@
   function showView(name) {
     E['threads-view'].style.display = name === 'threads' ? '' : 'none';
     E['chat-view'].style.display = name === 'chat' ? '' : 'none';
-    if (name === 'threads') renderThreadsList();
+    if (name === 'threads') {
+      // Fetch sessions from server each time we show threads view
+      fetchSessions().then(function() {
+        renderThreadsList();
+      });
+    }
   }
 
   function renderThreadsList() {
@@ -600,15 +666,38 @@
 
       var nm = document.createElement('span');
       nm.className = 'thread-name';
-      nm.textContent = t.name;
+      // Use title if available, otherwise show shortened session ID
+      var displayName = t.title || t.session_id || t.name;
+      if (!t.title && displayName.length > 20) {
+        displayName = displayName.substring(0, 8) + '...' + displayName.substring(displayName.length - 8);
+      }
+      // Truncate long titles
+      if (displayName.length > 40) {
+        displayName = displayName.substring(0, 37) + '...';
+      }
+      nm.textContent = displayName;
       btn.appendChild(nm);
 
-      if (t.preview) {
+      // Show source badge
+      if (t.source) {
+        var src = document.createElement('span');
+        src.className = 'thread-source';
+        src.textContent = '[' + (t.source === 'discord' ? 'dis' : t.source === 'telegram' ? 'tg' : t.source) + ']';
+        btn.appendChild(src);
+      }
+
+      // Show preview (if different from title)
+      if (t.preview && t.preview !== t.title) {
         var pv = document.createElement('span');
         pv.className = 'thread-preview';
-        pv.textContent = t.preview;
+        var previewText = t.preview;
+        if (previewText.length > 60) {
+          previewText = previewText.substring(0, 57) + '...';
+        }
+        pv.textContent = previewText;
         btn.appendChild(pv);
       }
+
       if (t.time) {
         var tm = document.createElement('span');
         tm.className = 'thread-time';
@@ -646,14 +735,15 @@
 
     var role = document.createElement('span');
     role.className = 'message-role';
-    role.textContent = msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Hermes' : 'Error';
+    role.textContent = msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Hermes' : msg.role === 'tool' ? 'Tool' : 'Error';
     el.appendChild(role);
 
     if (msg.tools && msg.tools.length > 0) {
       for (var i = 0; i < msg.tools.length; i++) {
         var ti = document.createElement('span');
         ti.className = 'tool-indicator';
-        ti.textContent = msg.tools[i].icon + ' ' + msg.tools[i].name + (msg.tools[i].args ? ': ' + msg.tools[i].args : '');
+        var icon = msg.tools[i].icon || TOOL_ICONS[msg.tools[i].name] || TOOL_ICONS['default'];
+        ti.textContent = icon + ' ' + msg.tools[i].name + (msg.tools[i].args ? ': ' + msg.tools[i].args : '');
         el.appendChild(ti);
         if (msg.tools[i].output) {
           var to = document.createElement('span');
@@ -715,18 +805,45 @@
 
   // === THREAD ACTIONS ===
   function openThread(name) {
-    upsertThread(name);
+    // Find the thread to get its ID
+    var t = findThread(name);
+    var sessionId = t ? (t.id || t.name) : name;
+    
     state.activeThread = name;
     state.messages = [];
     state.latestResponseId = null;
     state.earliestResponseId = null;
     state.hasEarlier = false;
     state.lastError = null;
-    E['thread-title'].textContent = name;
+    
+    // Show shortened name in title
+    var displayName = t ? (t.session_id || t.name) : name;
+    if (displayName.length > 20) {
+      displayName = displayName.substring(0, 8) + '...' + displayName.substring(displayName.length - 8);
+    }
+    E['thread-title'].textContent = displayName;
+    
     showView('chat');
     updateLoadEarlier();
-    loadLatest(name);
-    E['message-input'].focus();
+    
+    // Load messages from server session file
+    showTyping(true);
+    E['typing-indicator'].querySelector('.typing-text').textContent = 'Loading session history...';
+    
+    fetchSessionMessages(sessionId, 15)
+      .then(function(msgs) {
+        state.messages = msgs;
+        renderMessages();
+      })
+      .catch(function(err) {
+        console.error('[openThread] Error:', err.message);
+        state.messages = [{ role: 'error', content: 'Could not load session: ' + err.message, tools: [] }];
+        renderMessages();
+      })
+      .finally(function() {
+        showTyping(false);
+        E['message-input'].focus();
+      });
   }
 
   // === EVENT BINDING ===
@@ -863,7 +980,12 @@
     E['setting-stream'].checked = state.streaming;
 
     bindEvents();
-    renderThreadsList();
+    
+    // Fetch sessions from server on init
+    fetchSessions().then(function() {
+      renderThreadsList();
+    });
+    
     checkHealth();
     // Re-check health every 30s
     setInterval(checkHealth, 30000);

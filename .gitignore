@@ -2,3 +2,4 @@
 .agents/*
 config/mcporter.json
 cloudflared
+__pycache__/

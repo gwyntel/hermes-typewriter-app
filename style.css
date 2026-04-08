@@ -88,7 +88,8 @@ h1 {
   font-size: var(--fs-xl);
   font-weight: bold;
   letter-spacing: 0.2em;
-  text-transform: uppercase;
+  margin: 0;
+  color: var(--ink);
 }
 
 .status {
@@ -235,6 +236,7 @@ label {
   font-weight: bold;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--ink);
 }
 
 /* --- THREAD LIST --- */
@@ -265,6 +267,7 @@ label {
   font-weight: bold;
   display: block;
   margin-bottom: var(--sp-2);
+  color: var(--ink);
 }
 .thread-preview {
   font-size: var(--fs-sm);
@@ -281,6 +284,16 @@ label {
   color: var(--ink-faint);
   display: block;
   margin-top: var(--sp-2);
+}
+.thread-source {
+  font-size: 11px;
+  color: var(--paper);
+  background: var(--black);
+  padding: 1px 4px;
+  border-radius: 2px;
+  margin-left: var(--sp-2);
+  font-family: var(--mono);
+  text-transform: uppercase;
 }
 
 /* --- EMPTY STATE --- */
@@ -323,7 +336,8 @@ label {
   letter-spacing: 0.05em;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--ink);
+}
   margin-left: var(--sp-4);
   flex-grow: 1;
   flex-shrink: 1;
@@ -372,20 +386,23 @@ label {
 /* --- TOOL INDICATORS --- */
 .tool-indicator {
   font-size: var(--fs-sm);
-  color: var(--ink-mid);
-  font-style: italic;
+  color: var(--ink);
+  font-weight: bold;
   padding: var(--sp-2) 0;
   display: block;
+  border-bottom: 1px dashed var(--border-lt);
 }
 .tool-output {
   font-size: var(--fs-sm);
   color: var(--ink-mid);
+  background: var(--paper-dim);
   padding: var(--sp-2) 0 var(--sp-2) var(--sp-8);
-  border-left: 1px solid var(--border-lt);
+  border-left: 2px solid var(--border-lt);
   display: block;
   white-space: pre-wrap;
-  max-height: 100px;
+  max-height: 150px;
   overflow: hidden;
+  margin: var(--sp-2) 0;
 }
 
 /* --- CODE --- */
@@ -395,6 +412,7 @@ label {
   padding: var(--sp-4);
   margin: var(--sp-4) 0;
   background: var(--white);
+  color: var(--ink);
   font-size: var(--fs-sm);
   white-space: pre;
   overflow-x: auto;
@@ -402,6 +420,7 @@ label {
 }
 .inline-code {
   background: var(--paper-dim);
+  color: var(--ink);
   padding: 2px 4px;
   border: 1px solid var(--border-lt);
   font-size: var(--fs-sm);
