@@ -2321,6 +2321,79 @@ console.log(JSON.stringify(testFeatures(), null, 2));
 
 ---
 
+## Session Management
+
+For apps that need to display conversation history from JSONL files:
+
+### Reading Hermes Session Files
+
+Sessions are stored in `~/.hermes/sessions/` as JSONL:
+
+```
+YYYYMMDD_HHMMSS_<id>.jsonl
+```
+
+Each line is a JSON object:
+- `role: "session_meta"` — metadata (platform, model, tools array)
+- `role: "user"` — user message with `content` and `timestamp`
+- `role: "assistant"` — assistant message, may have `tool_calls` array
+- `role: "tool"` — tool output with `tool_call_id` reference
+
+### Merging Tool Outputs
+
+Tool calls and outputs are separate entries. Merge for display:
+
+```python
+def read_session_messages(session_file, turns=15):
+    all_entries = []
+    tool_outputs = {}  # Map tool_call_id -> output
+    
+    with open(session_file, 'r') as f:
+        for line in f:
+            entry = json.loads(line.strip())
+            if entry.get("role") == "session_meta":
+                continue
+            if entry.get("role") == "tool":
+                tool_call_id = entry.get("tool_call_id")
+                if tool_call_id:
+                    tool_outputs[tool_call_id] = entry.get("content", "")[:200]
+                continue
+            all_entries.append(entry)
+    
+    # Merge tool outputs into assistant messages
+    messages = []
+    for entry in all_entries:
+        msg = {
+            "role": entry.get("role"),
+            "content": entry.get("content", ""),
+            "tools": []
+        }
+        if entry.get("role") == "assistant" and entry.get("tool_calls"):
+            for tc in entry.get("tool_calls", []):
+                fn = tc.get("function", {})
+                msg["tools"].append({
+                    "name": fn.get("name", "unknown"),
+                    "args": fn.get("arguments", "")[:50],
+                    "output": tool_outputs.get(tc.get("id", ""), "")
+                })
+        messages.append(msg)
+    
+    return messages[-turns * 2:]  # Last N turns
+```
+
+### Security: No config.js
+
+Never expose configuration in a separate file that can be fetched:
+
+```python
+# Block config.js requests server-side
+if self.path == '/config.js':
+    self.send_error(404)
+    return
+```
+
+Hardcode defaults in app.js instead, store user settings in localStorage after they enter them.
+
 ## Resources
 
 ### Official Documentation

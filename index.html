@@ -26,7 +26,10 @@
 
     <div class="section-bar">
       <span class="section-label">Sessions</span>
-      <button id="new-session-btn" class="btn btn--sm" aria-label="Create new session">[+ NEW]</button>
+      <div class="section-actions">
+        <button id="refresh-sessions-btn" class="btn btn--sm" aria-label="Refresh sessions">[&#x21BB;]</button>
+        <button id="new-session-btn" class="btn btn--sm" aria-label="Create new session">[+ NEW]</button>
+      </div>
     </div>
 
     <!-- New session inline form -->
@@ -54,7 +57,7 @@
 
     <div id="sessions-empty" class="empty-state">
       <p>No sessions yet.</p>
-      <p class="muted">Press [+ NEW] to begin a named conversation.</p>
+      <p class="muted">Open [SETTINGS] and enter your API key to begin.</p>
     </div>
 
     <div class="rule"></div>

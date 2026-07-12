@@ -1,0 +1,5 @@
+name: session-context
+description: Inject recent session context into typewriter frontend by writing session list to JSON file
+events:
+  - agent:start
+  - session:start

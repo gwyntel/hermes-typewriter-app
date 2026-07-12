@@ -1,12 +1,21 @@
 /**
  * Hermes Typewriter — Runtime Configuration
  * Edit these values to match your deployment.
+ * 
+ * IMPORTANT: You must set an API key to connect to Hermes.
+ * 1. Open [SETTINGS] in the UI
+ * 2. Enter your API key (from ~/.hermes/.env API_SERVER_KEY)
+ * 3. Click [SAVE]
+ * 
+ * Or pre-configure here by setting apiKey to your key value.
  */
 window.HERMES_CONFIG = {
   // Server URL (proxied through serve.sh)
   serverUrl: window.location.origin,
 
-  // API key (leave blank if gateway has no auth)
+  // API key - REQUIRED for authentication
+  // Get this from ~/.hermes/.env (API_SERVER_KEY value)
+  // Leave blank to be prompted in settings
   apiKey: '',
 
   /**

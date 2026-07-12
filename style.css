@@ -346,6 +346,15 @@ label {
   flex-shrink: 1;
 }
 
+.section-actions {
+  display: flex;
+  align-items: center;
+}
+
+.section-actions > * + * {
+  margin-left: var(--sp-2);
+}
+
 /* --- SESSION / THREAD LIST --- */
 .thread-item {
   display: block;
@@ -720,7 +729,16 @@ tbody tr:last-child td {
 
 /* --- TYPING INDICATOR --- */
 .typing-indicator {
-  padding: var(--sp-4) 0;
+  padding: var(--sp-4) var(--sp-6);
+  text-align: center;
+  border-top: 2px solid var(--border);
+  margin-top: var(--sp-2);
+  background: var(--paper-dim);
+}
+.typing-indicator .muted {
+  font-family: var(--font);
+  letter-spacing: 0.15em;
+  font-weight: bold;
 }
 
 /* --- LOAD EARLIER --- */

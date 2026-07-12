@@ -30,6 +30,11 @@ Follow these phases to get the typewriter live on a Kindle:
    - Ensure the skill is linked to the agent's home:
      `ln -sf $(pwd)/skills/hermes-typewriter ~/.hermes/skills/hermes-typewriter`
      `ln -sf $(pwd)/skills/kindle-web-development ~/.hermes/skills/kindle-web-development`
+3. **Install Session Context Hook**:
+   - The hook injects recent session data into the typewriter frontend.
+   - Create hooks directory if needed: `mkdir -p ~/.hermes/hooks`
+   - Link the hook: `ln -sf $(pwd)/skills/hermes-typewriter/hooks/session-context ~/.hermes/hooks/session-context`
+   - The hook writes session data to `~/.hermes/session_context.json` on `agent:start` events
 
 ### Phase 1: Backend Configuration
 

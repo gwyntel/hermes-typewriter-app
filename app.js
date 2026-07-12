@@ -54,6 +54,7 @@
       'status', 'mode-badge',
       'sessions-view', 'chat-view',
       'sessions-list', 'sessions-empty',
+      'refresh-sessions-btn',
       'new-session-btn', 'new-session-form', 'new-session-input',
       'new-session-error', 'new-session-cancel', 'new-session-create',
       'rejoin-input', 'rejoin-error', 'rejoin-btn',
@@ -78,23 +79,13 @@
 
   function saveMeta() {
     try {
-      // Never store message content in session metadata
-      var meta = state.sessions.map(function (s) {
-        return {
-          id: s.id,
-          mode: s.mode,
-          preview: s.preview,
-          time: s.time,
-          lastResponseId: s.lastResponseId || null
-        };
-      });
+      // Only save settings, NOT sessions - server is source of truth
       localStorage.setItem(LS_META_KEY, JSON.stringify({
         serverUrl: state.serverUrl,
         apiKey: state.apiKey,
         mode: state.mode,
         maxTurns: state.maxTurns,
-        dark: state.dark,
-        sessions: meta
+        dark: state.dark
       }));
     } catch (e) { /* silent fail on Kindle */ }
   }
@@ -130,7 +121,8 @@
         state.mode = d.mode || DEFAULT_MODE;
         state.maxTurns = d.maxTurns || DEFAULT_TURNS;
         state.dark = !!d.dark;
-        state.sessions = d.sessions || [];
+        // Sessions loaded from server, not localStorage
+        state.sessions = [];
       }
       applyDarkMode();
     } catch (e) { /* use defaults */ }
@@ -246,16 +238,20 @@
   }
 
   // === SERVER SESSIONS API ===
+  // Fetches recent sessions from the proxy server's /sessions endpoint
+  // This reads directly from the Hermes SQLite database (state.db)
+  // Requires API key authentication (same as completions API)
   function fetchServerSessions(callback) {
-    if (!state.serverUrl || !state.apiKey) {
+    if (!state.serverUrl) {
       if (callback) callback(null);
       return;
     }
     var ctrl = new AbortController();
     var tid = setTimeout(function () { ctrl.abort(); }, 8000);
     
-    fetch(state.serverUrl + '/v1/sessions?limit=50', {
-      headers: headers(),
+    // Use proxy /sessions endpoint - requires auth
+    fetch(state.serverUrl + '/sessions?limit=15', {
+      headers: headers(), // Include Authorization header
       signal: ctrl.signal
     })
       .then(function (r) {
@@ -265,6 +261,7 @@
       })
       .then(function (data) {
         var serverSessions = data.sessions || [];
+        console.log('[hermes] Fetched ' + serverSessions.length + ' sessions from server');
         if (callback) callback(serverSessions);
       })
       .catch(function (err) {
@@ -274,52 +271,38 @@
       });
   }
 
-  // Merge server sessions with local sessions
-  // Server sessions take precedence for metadata (preview, time, message_count)
-  function mergeSessions(serverSessions) {
+  // Set sessions from server response (server is source of truth, no local merge)
+  function setSessionsFromServer(serverSessions) {
     if (!serverSessions || serverSessions.length === 0) {
-      // Just use local sessions
+      state.sessions = [];
       return;
     }
     
-    // Create a map of local session IDs for quick lookup
-    var localIds = {};
-    for (var i = 0; i < state.sessions.length; i++) {
-      localIds[state.sessions[i].id] = true;
-    }
-    
-    // Add server sessions (they're the source of truth now)
-    var merged = [];
-    var seenIds = {};
-    
-    // First, add all server sessions
+    var sessions = [];
     for (var j = 0; j < serverSessions.length; j++) {
       var ss = serverSessions[j];
-      if (seenIds[ss.id]) continue;
-      seenIds[ss.id] = true;
       
-      merged.push({
+      // Handle timestamp: use started_at_iso (from our endpoint) or started_at (raw timestamp)
+      var sessionTime = Date.now();
+      if (ss.started_at_iso) {
+        sessionTime = new Date(ss.started_at_iso).getTime();
+      } else if (ss.started_at) {
+        sessionTime = ss.started_at * 1000; // Unix timestamp to ms
+      }
+      
+      sessions.push({
         id: ss.id,
         mode: state.mode, // Use current mode setting
         preview: ss.preview || '',
         title: ss.title || null,
         source: ss.source || null,
         message_count: ss.message_count || 0,
-        time: ss.last_active ? new Date(ss.last_active).getTime() : Date.now()
+        model: ss.model || null,
+        time: sessionTime
       });
     }
     
-    // Then add any local-only sessions (not on server yet)
-    for (var k = 0; k < state.sessions.length; k++) {
-      var ls = state.sessions[k];
-      if (!seenIds[ls.id]) {
-        seenIds[ls.id] = true;
-        merged.push(ls);
-      }
-    }
-    
-    state.sessions = merged;
-    saveMeta();
+    state.sessions = sessions;
   }
 
   // === API HEADERS ===
@@ -384,7 +367,7 @@
     var tid = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     var assistantMsg = { role: 'assistant', content: '', tools: [] };
     state.messages.push(assistantMsg);
-    showTyping(false);
+    showTyping(true);  // Show typing indicator during streaming
     renderMessages();
 
     var body = {
@@ -475,6 +458,8 @@
           var label = parts.slice(1).join(' ') || raw;
           msg.tools.push({ name: label, icon: icon, isComplete: true });
           console.log('[hermes] Tool indicator:', label);
+          // Update typing indicator to show tool name
+          updateTypingTool(label);
         } else {
           msg.content += delta;  // Keep raw emoji - Twemoji converts later
         }
@@ -711,10 +696,28 @@
     E['sessions-list'].innerHTML = '<div class="loading-state"><p class="muted">Loading sessions...</p></div>';
     E['sessions-empty'].style.display = 'none';
     
-    // Fetch from server first, then render
+    // Check if we have an API key before fetching
+    if (!state.apiKey) {
+      E['sessions-list'].innerHTML = '';
+      E['sessions-empty'].style.display = '';
+      E['sessions-empty'].innerHTML = '<p>API key required.</p><p class="muted">Open [SETTINGS] and enter your API key.</p>';
+      return;
+    }
+    
+    // Clear local sessions - server is source of truth
+    state.sessions = [];
+    
+    // Fetch from server, then render
     fetchServerSessions(function(serverSessions) {
       if (serverSessions) {
-        mergeSessions(serverSessions);
+        // Replace sessions entirely from server
+        setSessionsFromServer(serverSessions);
+      } else {
+        // Auth failed or network error - show message
+        E['sessions-list'].innerHTML = '';
+        E['sessions-empty'].style.display = '';
+        E['sessions-empty'].innerHTML = '<p>Failed to load sessions.</p><p class="muted">Check your API key in [SETTINGS].</p>';
+        return;
       }
       _renderSessionsListInner();
     });
@@ -917,9 +920,46 @@
     }
   }
 
-  function showTyping(on) {
-    E['typing-indicator'].style.display = on ? '' : 'none';
-    if (on) scrollToBottom();
+  // === TYPING INDICATOR ===
+  var _typingInterval = null;
+  var _typingDots = 0;
+  var _lastToolName = null;
+  
+  function showTyping(on, toolName) {
+    if (on) {
+      E['typing-indicator'].style.display = '';
+      // Track tool name for display
+      _lastToolName = toolName || null;
+      // Start animated ellipsis (e-ink safe - no CSS animations)
+      if (_typingInterval) clearInterval(_typingInterval);
+      _typingDots = 0;
+      _typingInterval = setInterval(function () {
+        _typingDots = (_typingDots + 1) % 4;
+        var dots = ['', '.', '..', '...'][_typingDots];
+        var text = _lastToolName 
+          ? _lastToolName.toUpperCase() + dots 
+          : 'HERMES IS WRITING' + dots;
+        E['typing-indicator'].querySelector('.muted').textContent = text;
+      }, 500);
+      scrollToBottom();
+    } else {
+      E['typing-indicator'].style.display = 'none';
+      _lastToolName = null;
+      if (_typingInterval) {
+        clearInterval(_typingInterval);
+        _typingInterval = null;
+      }
+    }
+  }
+  
+  function updateTypingTool(toolName) {
+    // Update the typing indicator to show current tool
+    // Make sure typing indicator is visible during tool calls
+    if (E['typing-indicator'].style.display === 'none') {
+      showTyping(true, toolName);
+    } else if (_typingInterval) {
+      _lastToolName = toolName;
+    }
   }
 
   function updateInputState() {
@@ -1021,6 +1061,13 @@
 
   // === EVENT BINDING ===
   function bindEvents() {
+    // Refresh sessions
+    E['refresh-sessions-btn'].addEventListener('click', function () {
+      E['refresh-sessions-btn'].textContent = '[...]';
+      renderSessionsList();
+      setTimeout(function () { E['refresh-sessions-btn'].textContent = '[\u21BB]'; }, 1000);
+    });
+    
     // New session
     E['new-session-btn'].addEventListener('click', function () {
       E['new-session-form'].style.display = '';
@@ -1084,8 +1131,11 @@
       checkHealth(true);
     });
 
-    // Back
-    E['back-btn'].addEventListener('click', function () { showView('sessions'); });
+    // Back - refresh sessions when returning to list
+    E['back-btn'].addEventListener('click', function () {
+      showView('sessions');
+      renderSessionsList(); // Refresh from server
+    });
 
     // Load earlier (responses mode paging)
     E['load-earlier-btn'].addEventListener('click', loadEarlier);
@@ -1143,6 +1193,11 @@
     renderSessionsList();
     checkHealth();
     setInterval(checkHealth, 30000);
+    
+    // If no API key, open settings on first load
+    if (!state.apiKey) {
+      toggleSettings();
+    }
   }
 
   if (document.readyState === 'loading') {
